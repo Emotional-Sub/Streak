@@ -111,6 +111,16 @@ public class AppRepository {
         account.setPassword(null);
     }
 
+    /**
+     * 判断候选密码是否与账号当前密码一致（兼容旧明文账号）。
+     */
+    private boolean isSamePassword(UserAccount account, String candidate) {
+        if (account.isLegacyPlaintext()) {
+            return candidate.equals(account.getPassword());
+        }
+        return PasswordHasher.verify(candidate, account.getSalt(), account.getPasswordHash());
+    }
+
     public void saveLoginState(String username, String password, boolean rememberPassword, String currentUser) {
         preferences.edit()
                 .putBoolean(KEY_REMEMBER_PASSWORD, rememberPassword)
@@ -194,6 +204,9 @@ public class AppRepository {
         target.setMotto(motto);
         target.setAvatarUri(avatarUri);
         if (newPassword != null && !newPassword.isEmpty()) {
+            if (isSamePassword(target, newPassword)) {
+                return "新密码不能与原密码相同";
+            }
             applyHashedPassword(target, newPassword);
         }
         saveAccounts(accounts);

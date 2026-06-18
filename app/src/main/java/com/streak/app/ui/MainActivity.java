@@ -34,6 +34,7 @@ import com.streak.app.databinding.ItemSheetHabitBinding;
 import com.streak.app.databinding.ItemStatRowBinding;
 import com.streak.app.databinding.ItemTemplateOptionBinding;
 import com.streak.app.databinding.SheetCalendarDetailBinding;
+import com.streak.app.databinding.SheetHabitPreviewBinding;
 import com.streak.app.databinding.SheetTemplateChooserBinding;
 import com.streak.app.databinding.ViewDashboardCalendarBinding;
 import com.streak.app.databinding.ViewDashboardHabitsBinding;
@@ -321,6 +322,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         statsBinding.pageStats.setVisibility(item.getItemId() == R.id.nav_stats ? View.VISIBLE : View.GONE);
         profileBinding.pageProfile.setVisibility(item.getItemId() == R.id.nav_profile ? View.VISIBLE : View.GONE);
         binding.fabAddHabit.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
+        if (item.getItemId() == R.id.nav_habits) {
+            refreshSlogan();
+        }
         if (item.getItemId() == R.id.nav_stats) {
             statsBinding.pieCategory.replay();
         }
@@ -369,6 +373,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         habitsBinding.tvSummaryHabitCount.setText(String.valueOf(allHabits.size()));
         habitsBinding.tvSummaryTodayCount.setText(String.valueOf(completedToday));
         habitsBinding.tvSummaryBestStreak.setText(bestStreak + "天");
+    }
+
+    private void refreshSlogan() {
         habitsBinding.tvSummarySlogan.setText(SLOGANS[new java.util.Random().nextInt(SLOGANS.length)]);
     }
 
@@ -874,7 +881,36 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     @Override
     public void onEdit(HabitItem item) {
-        openEditor(item.getId());
+        showHabitPreview(item);
+    }
+
+    private void showHabitPreview(HabitItem item) {
+        SheetHabitPreviewBinding sheetBinding = SheetHabitPreviewBinding.inflate(getLayoutInflater());
+        sheetBinding.tvPreviewTitle.setText(item.getTitle());
+        sheetBinding.tvPreviewMeta.setText(
+                item.getCategory() + " · 提醒 " + item.getReminderTime()
+                        + " · 连续 " + HabitUtils.currentStreak(item.getCompletedDates()) + " 天"
+        );
+        sheetBinding.tvPreviewContent.setText(item.getContent());
+
+        if (item.getTags() != null && !item.getTags().isEmpty()) {
+            StringBuilder tags = new StringBuilder();
+            for (String tag : item.getTags()) {
+                tags.append("#").append(tag).append(" ");
+            }
+            sheetBinding.tvPreviewTags.setText(tags.toString().trim());
+            sheetBinding.tvPreviewTags.setVisibility(View.VISIBLE);
+        } else {
+            sheetBinding.tvPreviewTags.setVisibility(View.GONE);
+        }
+
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        sheetBinding.btnPreviewEdit.setOnClickListener(v -> {
+            dialog.dismiss();
+            openEditor(item.getId());
+        });
+        dialog.setContentView(sheetBinding.getRoot());
+        dialog.show();
     }
 
     @Override
