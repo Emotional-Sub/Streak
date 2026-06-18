@@ -32,10 +32,19 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/ivProfileAvatar"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:scaleType="centerCrop"
+                        android:visibility="gone"
+                        app:shapeAppearanceOverlay="@style/StreakShapeCircle" />
+
                     <TextView
                         android:id="@+id/tvProfileAvatar"
                         android:layout_width="56dp"
                         android:layout_height="56dp"
+                        android:layout_marginStart="-56dp"
                         android:background="@drawable/bg_avatar_circle"
                         android:gravity="center"
                         android:text="A"
@@ -68,6 +77,14 @@
                             android:textColor="#4B5563"
                             android:textSize="14sp" />
                     </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnEditProfile"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="编辑"
+                        android:textAllCaps="false" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -259,10 +276,21 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="4. 右上角导出按钮可自行选择保存路径，生成备份文件。"
+                    android:text="4. 右上角导出按钮可生成 ZIP 备份（含照片），导入可恢复。"
                     android:textColor="#4B5563"
                     android:textSize="14sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDeleteAccount"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="删除账号"
+            android:textAllCaps="false"
+            android:textColor="#EB5A6A"
+            app:strokeColor="#EB5A6A" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

@@ -7,6 +7,10 @@ public class UserAccount {
     private String password;
     private String passwordHash;
     private String salt;
+    // 个人资料
+    private String displayName;
+    private String motto;
+    private String avatarUri;
 
     public UserAccount() {
     }
@@ -22,6 +26,30 @@ public class UserAccount {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public String getMotto() {
+        return motto;
+    }
+
+    public void setMotto(String motto) {
+        this.motto = motto;
+    }
+
+    public String getAvatarUri() {
+        return avatarUri;
+    }
+
+    public void setAvatarUri(String avatarUri) {
+        this.avatarUri = avatarUri;
     }
 
     public String getPassword() {

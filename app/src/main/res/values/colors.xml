@@ -10,4 +10,11 @@
     <color name="streak_ink">#151827</color>
     <color name="streak_muted">#667085</color>
     <color name="streak_line">#E7EAF3</color>
+
+    <!-- 分类饼图配色（学习/运动/生活/工作/阅读） -->
+    <color name="cat_study">#5B5FEF</color>
+    <color name="cat_sport">#18A67A</color>
+    <color name="cat_life">#F5A623</color>
+    <color name="cat_work">#EB5A6A</color>
+    <color name="cat_read">#3FA9F5</color>
 </resources>

@@ -29,6 +29,11 @@ import java.util.Locale;
 
 public class HabitEditorActivity extends AppCompatActivity {
     public static final String EXTRA_HABIT_ID = "extra_habit_id";
+    public static final String EXTRA_TPL_TITLE = "extra_tpl_title";
+    public static final String EXTRA_TPL_CONTENT = "extra_tpl_content";
+    public static final String EXTRA_TPL_CATEGORY = "extra_tpl_category";
+    public static final String EXTRA_TPL_REMINDER = "extra_tpl_reminder";
+    public static final String EXTRA_TPL_TAGS = "extra_tpl_tags";
 
     private ActivityHabitEditorBinding binding;
     private AppRepository repository;
@@ -115,8 +120,7 @@ public class HabitEditorActivity extends AppCompatActivity {
 
     private void bindHabitData() {
         if (originalHabit == null) {
-            binding.etEditorReminderTime.setText("20:00");
-            binding.switchReminder.setChecked(true);
+            applyTemplateIfPresent();
             return;
         }
         binding.etEditorTitle.setText(originalHabit.getTitle());
@@ -131,6 +135,29 @@ public class HabitEditorActivity extends AppCompatActivity {
             binding.ivEditorPreview.setVisibility(android.view.View.VISIBLE);
             binding.btnRemovePhoto.setVisibility(android.view.View.VISIBLE);
         }
+    }
+
+    private void applyTemplateIfPresent() {
+        Intent intent = getIntent();
+        String tplTitle = intent.getStringExtra(EXTRA_TPL_TITLE);
+
+        binding.etEditorReminderTime.setText(
+                intent.getStringExtra(EXTRA_TPL_REMINDER) != null
+                        ? intent.getStringExtra(EXTRA_TPL_REMINDER) : "20:00"
+        );
+        binding.switchReminder.setChecked(true);
+
+        if (tplTitle == null) {
+            // 空白新建
+            return;
+        }
+        binding.etEditorTitle.setText(tplTitle);
+        binding.etEditorContent.setText(intent.getStringExtra(EXTRA_TPL_CONTENT));
+        String category = intent.getStringExtra(EXTRA_TPL_CATEGORY);
+        if (category != null) {
+            binding.actEditorCategory.setText(category, false);
+        }
+        binding.etEditorTags.setText(intent.getStringExtra(EXTRA_TPL_TAGS));
     }
 
     private void showTimePicker() {

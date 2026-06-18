@@ -26,17 +26,21 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.google.android.material.chip.Chip;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.streak.app.R;
 import com.streak.app.databinding.ActivityMainBinding;
-import com.streak.app.databinding.DialogRegisterBinding;
+import com.streak.app.databinding.ItemSheetHabitBinding;
 import com.streak.app.databinding.ItemStatRowBinding;
+import com.streak.app.databinding.SheetCalendarDetailBinding;
 import com.streak.app.databinding.ViewDashboardCalendarBinding;
 import com.streak.app.databinding.ViewDashboardHabitsBinding;
 import com.streak.app.databinding.ViewDashboardProfileBinding;
 import com.streak.app.databinding.ViewDashboardStatsBinding;
 import com.streak.app.model.CalendarCell;
 import com.streak.app.model.HabitItem;
+import com.streak.app.model.HabitTemplate;
+import com.streak.app.model.UserAccount;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.util.HabitUtils;
 
@@ -75,7 +79,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     private ActivityResultLauncher<String> notificationPermissionLauncher;
     private ActivityResultLauncher<String> exportLauncher;
+    private ActivityResultLauncher<String[]> importLauncher;
     private ActivityResultLauncher<Intent> editorLauncher;
+    private ActivityResultLauncher<Intent> registerLauncher;
+    private ActivityResultLauncher<Intent> profileEditLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -131,7 +138,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         );
 
         exportLauncher = registerForActivityResult(
-                new ActivityResultContracts.CreateDocument("application/json"),
+                new ActivityResultContracts.CreateDocument("application/zip"),
                 uri -> {
                     File exportFile = pendingExportFile;
                     pendingExportFile = null;
@@ -149,9 +156,27 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     exportFile.delete();
                     Toast.makeText(
                             this,
-                            success ? "导出成功，请到你选择的位置查看" : "保存失败，请重试",
+                            success ? "备份已导出（含照片），请到你选择的位置查看" : "保存失败，请重试",
                             Toast.LENGTH_SHORT
                     ).show();
+                }
+        );
+
+        importLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(),
+                uri -> {
+                    if (uri == null) {
+                        return;
+                    }
+                    boolean success = repository.importBackup(uri);
+                    Toast.makeText(
+                            this,
+                            success ? "导入成功，数据已恢复" : "导入失败，请确认选择的是本应用导出的备份",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                    if (success) {
+                        refreshDashboardData();
+                    }
                 }
         );
 
@@ -163,11 +188,34 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     }
                 }
         );
+
+        registerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        String username = result.getData().getStringExtra(RegisterActivity.RESULT_USERNAME);
+                        if (!TextUtils.isEmpty(username)) {
+                            binding.etLoginUsername.setText(username);
+                            binding.etLoginPassword.requestFocus();
+                        }
+                    }
+                }
+        );
+
+        profileEditLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK) {
+                        refreshDashboardData();
+                    }
+                }
+        );
     }
 
     private void setupLoginViews() {
         binding.btnLogin.setOnClickListener(v -> attemptLogin());
-        binding.tvRegisterAccount.setOnClickListener(v -> showRegisterDialog());
+        binding.tvRegisterAccount.setOnClickListener(v ->
+                registerLauncher.launch(new Intent(this, RegisterActivity.class)));
     }
 
     private void setupDashboardViews() {
@@ -184,7 +232,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         binding.bottomNavigation.setOnItemSelectedListener(this::onBottomNavigationSelected);
         binding.bottomNavigation.setSelectedItemId(R.id.nav_habits);
 
-        binding.fabAddHabit.setOnClickListener(v -> openEditor(-1L));
+        binding.fabAddHabit.setOnClickListener(v -> showTemplateChooser());
+
+        profileBinding.btnEditProfile.setOnClickListener(v ->
+                profileEditLauncher.launch(new Intent(this, ProfileEditActivity.class)));
+        profileBinding.btnDeleteAccount.setOnClickListener(v -> confirmDeleteAccount());
     }
 
     private void loadLoginState() {
@@ -226,38 +278,15 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
     }
 
-    private void showRegisterDialog() {
-        DialogRegisterBinding dialogBinding = DialogRegisterBinding.inflate(getLayoutInflater());
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("注册账号")
-                .setView(dialogBinding.getRoot())
-                .setNegativeButton("取消", null)
-                .setPositiveButton("注册", (dialog, which) -> {
-                    String username = getText(dialogBinding.etRegisterUsername);
-                    String password = getText(dialogBinding.etRegisterPassword);
-                    String confirmPassword = getText(dialogBinding.etRegisterConfirmPassword);
-                    if (username.isEmpty() || password.isEmpty()) {
-                        Toast.makeText(this, "用户名和密码不能为空", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    if (!TextUtils.equals(password, confirmPassword)) {
-                        Toast.makeText(this, "两次输入的密码不一致", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    String error = repository.registerAccount(username, password);
-                    Toast.makeText(
-                            this,
-                            error == null ? "注册成功，请登录" : error,
-                            Toast.LENGTH_SHORT
-                    ).show();
-                })
-                .show();
-    }
 
     private boolean onToolbarMenuClicked(@NonNull MenuItem item) {
         int itemId = item.getItemId();
         if (itemId == R.id.action_export) {
             exportBackup();
+            return true;
+        }
+        if (itemId == R.id.action_import) {
+            importLauncher.launch(new String[]{"application/zip", "application/octet-stream"});
             return true;
         }
         if (itemId == R.id.action_logout) {
@@ -275,6 +304,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         statsBinding.pageStats.setVisibility(item.getItemId() == R.id.nav_stats ? View.VISIBLE : View.GONE);
         profileBinding.pageProfile.setVisibility(item.getItemId() == R.id.nav_profile ? View.VISIBLE : View.GONE);
         binding.fabAddHabit.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
+        if (item.getItemId() == R.id.nav_stats) {
+            statsBinding.pieCategory.replay();
+        }
         return true;
     }
 
@@ -405,9 +437,12 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         statsBinding.layoutCategoryStats.removeAllViews();
         if (allHabits.isEmpty()) {
             statsBinding.tvEmptyStats.setVisibility(View.VISIBLE);
+            statsBinding.pieCategory.setVisibility(View.GONE);
+            statsBinding.chipGroupPieLegend.setVisibility(View.GONE);
             return;
         }
         statsBinding.tvEmptyStats.setVisibility(View.GONE);
+        updateCategoryPie();
         List<String> categories = HabitUtils.categories();
         for (String category : categories) {
             if ("全部".equals(category)) {
@@ -425,10 +460,89 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
     }
 
+    private void updateCategoryPie() {
+        List<CategoryPieChart.Slice> slices = new ArrayList<>();
+        int totalHabits = 0;
+        for (String category : HabitUtils.categories()) {
+            if ("全部".equals(category)) {
+                continue;
+            }
+            int count = 0;
+            for (HabitItem item : allHabits) {
+                if (category.equals(item.getCategory())) {
+                    count++;
+                }
+            }
+            if (count > 0) {
+                int color = ContextCompat.getColor(this, categoryColor(category));
+                slices.add(new CategoryPieChart.Slice(category, count, color));
+                totalHabits += count;
+            }
+        }
+
+        statsBinding.pieCategory.setVisibility(View.VISIBLE);
+        statsBinding.chipGroupPieLegend.setVisibility(View.VISIBLE);
+        statsBinding.pieCategory.setData(slices, String.valueOf(totalHabits));
+
+        statsBinding.chipGroupPieLegend.removeAllViews();
+        for (CategoryPieChart.Slice slice : slices) {
+            int percent = totalHabits == 0 ? 0 : Math.round(slice.value * 100f / totalHabits);
+            Chip chip = new Chip(this);
+            chip.setText(slice.label + " " + percent + "%");
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(0xFFF2F3F9));
+            chip.setChipStrokeWidth(0f);
+            chip.setChipIconVisible(true);
+            chip.setChipIcon(new android.graphics.drawable.ColorDrawable(slice.color));
+            chip.setEnsureMinTouchTargetSize(false);
+            chip.setClickable(false);
+            statsBinding.chipGroupPieLegend.addView(chip);
+        }
+    }
+
+    private int categoryColor(String category) {
+        switch (category) {
+            case "学习":
+                return R.color.cat_study;
+            case "运动":
+                return R.color.cat_sport;
+            case "生活":
+                return R.color.cat_life;
+            case "工作":
+                return R.color.cat_work;
+            case "阅读":
+                return R.color.cat_read;
+            default:
+                return R.color.streak_primary;
+        }
+    }
+
     private void updateProfilePage() {
-        String displayName = TextUtils.isEmpty(currentUser) ? "未登录" : currentUser;
+        UserAccount account = repository.getCurrentAccount();
+        String displayName = currentUser;
+        String motto = "坚持不是一次爆发，而是很多次按时完成。";
+        String avatarUri = null;
+        if (account != null) {
+            if (!TextUtils.isEmpty(account.getDisplayName())) {
+                displayName = account.getDisplayName();
+            }
+            if (!TextUtils.isEmpty(account.getMotto())) {
+                motto = account.getMotto();
+            }
+            avatarUri = account.getAvatarUri();
+        }
         profileBinding.tvProfileName.setText(displayName);
+        profileBinding.tvProfileMotto.setText(motto);
         profileBinding.tvProfileAvatar.setText(displayName.substring(0, 1).toUpperCase(Locale.ROOT));
+
+        if (!TextUtils.isEmpty(avatarUri)) {
+            profileBinding.ivProfileAvatar.setVisibility(View.VISIBLE);
+            profileBinding.ivProfileAvatar.setImageURI(Uri.parse(avatarUri));
+            profileBinding.tvProfileAvatar.setVisibility(View.GONE);
+        } else {
+            profileBinding.ivProfileAvatar.setVisibility(View.GONE);
+            profileBinding.ivProfileAvatar.setImageDrawable(null);
+            profileBinding.tvProfileAvatar.setVisibility(View.VISIBLE);
+        }
 
         int totalCheckIns = HabitUtils.totalCheckIns(allHabits);
         int bestStreak = 0;
@@ -490,11 +604,54 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         exportLauncher.launch(exportFile.getName());
     }
 
+    private void confirmDeleteAccount() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("删除账号")
+                .setMessage("确定要删除账号吗？所有习惯、打卡记录和照片将被永久清除，无法恢复。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> {
+                    repository.deleteCurrentAccountAndData();
+                    Toast.makeText(this, "账号已删除", Toast.LENGTH_SHORT).show();
+                    showLoginPage();
+                })
+                .show();
+    }
+
     private void openEditor(long habitId) {
         Intent intent = new Intent(this, HabitEditorActivity.class);
         if (habitId > 0) {
             intent.putExtra(HabitEditorActivity.EXTRA_HABIT_ID, habitId);
         }
+        editorLauncher.launch(intent);
+    }
+
+    private void showTemplateChooser() {
+        List<HabitTemplate> templates = HabitTemplate.presets();
+        List<String> options = new ArrayList<>();
+        options.add("空白新建");
+        for (HabitTemplate template : templates) {
+            options.add(template.getTitle() + " · " + template.getCategory());
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("选择习惯模板")
+                .setItems(options.toArray(new String[0]), (dialog, which) -> {
+                    if (which == 0) {
+                        openEditor(-1L);
+                    } else {
+                        openEditorWithTemplate(templates.get(which - 1));
+                    }
+                })
+                .show();
+    }
+
+    private void openEditorWithTemplate(HabitTemplate template) {
+        Intent intent = new Intent(this, HabitEditorActivity.class)
+                .putExtra(HabitEditorActivity.EXTRA_TPL_TITLE, template.getTitle())
+                .putExtra(HabitEditorActivity.EXTRA_TPL_CONTENT, template.getContent())
+                .putExtra(HabitEditorActivity.EXTRA_TPL_CATEGORY, template.getCategory())
+                .putExtra(HabitEditorActivity.EXTRA_TPL_REMINDER, template.getReminderTime())
+                .putExtra(HabitEditorActivity.EXTRA_TPL_TAGS, template.tagsText());
         editorLauncher.launch(intent);
     }
 
@@ -518,40 +675,98 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void showCalendarDetailDialog(String date) {
-        List<String> completed = new ArrayList<>();
-        List<String> pending = new ArrayList<>();
+        boolean isPast = date.compareTo(HabitUtils.today()) < 0;
+
+        List<HabitItem> completed = new ArrayList<>();
+        List<HabitItem> pending = new ArrayList<>();
         for (HabitItem item : allHabits) {
             if (item.getCompletedDates().contains(date)) {
-                completed.add(item.getTitle());
+                completed.add(item);
             } else {
-                pending.add(item.getTitle());
+                pending.add(item);
             }
         }
 
-        StringBuilder message = new StringBuilder();
-        message.append("已完成 ").append(completed.size()).append(" 项，未完成 ").append(pending.size()).append(" 项\n\n");
-        if (!completed.isEmpty()) {
-            message.append("已完成习惯\n");
-            for (String title : completed) {
-                message.append("• ").append(title).append("\n");
-            }
-            message.append("\n");
-        }
-        if (!pending.isEmpty()) {
-            message.append("未完成习惯\n");
-            for (String title : pending) {
-                message.append("• ").append(title).append("\n");
-            }
-        }
+        SheetCalendarDetailBinding sheetBinding = SheetCalendarDetailBinding.inflate(getLayoutInflater());
+        sheetBinding.tvSheetDate.setText(date + " 打卡详情");
+        sheetBinding.tvSheetSummary.setText(
+                "已完成 " + completed.size() + " 项，未完成 " + pending.size() + " 项"
+        );
+
+        ViewGroup container = sheetBinding.layoutSheetContent;
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+
         if (completed.isEmpty() && pending.isEmpty()) {
-            message.append("当天还没有任何习惯记录。");
+            addSheetSectionTitle(container, "当天还没有任何习惯记录。");
+        } else {
+            if (!completed.isEmpty()) {
+                addSheetSectionTitle(container, "已完成习惯");
+                for (HabitItem item : completed) {
+                    addSheetHabitRow(container, item, date, true, isPast, dialog);
+                }
+            }
+            if (!pending.isEmpty()) {
+                addSheetSectionTitle(container, "未完成习惯");
+                for (HabitItem item : pending) {
+                    addSheetHabitRow(container, item, date, false, isPast, dialog);
+                }
+            }
         }
 
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(date + " 打卡详情")
-                .setMessage(message.toString().trim())
-                .setPositiveButton("知道了", null)
-                .show();
+        dialog.setContentView(sheetBinding.getRoot());
+        dialog.show();
+    }
+
+    private void addSheetSectionTitle(ViewGroup container, String title) {
+        TextView textView = new TextView(this);
+        textView.setText(title);
+        textView.setTextColor(ContextCompat.getColor(this, R.color.streak_muted));
+        textView.setTextSize(13f);
+        int top = (int) (12 * getResources().getDisplayMetrics().density);
+        textView.setPadding(0, top, 0, 0);
+        container.addView(textView);
+    }
+
+    private void addSheetHabitRow(ViewGroup container, HabitItem item, String date,
+                                  boolean completed, boolean isPast, BottomSheetDialog dialog) {
+        ItemSheetHabitBinding rowBinding = ItemSheetHabitBinding.inflate(getLayoutInflater(), container, false);
+        rowBinding.tvSheetHabitTitle.setText(item.getTitle());
+        rowBinding.viewSheetDot.setBackgroundResource(
+                completed ? R.drawable.bg_status_done : R.drawable.bg_status_pending
+        );
+        rowBinding.tvSheetHabitStatus.setText(completed ? "已完成" : "未完成");
+        rowBinding.tvSheetHabitStatus.setTextColor(
+                ContextCompat.getColor(this, completed ? R.color.streak_accent : R.color.streak_muted)
+        );
+
+        if (isPast) {
+            rowBinding.btnSheetToggle.setVisibility(View.VISIBLE);
+            rowBinding.btnSheetToggle.setText(completed ? "撤销" : "补卡");
+            rowBinding.btnSheetToggle.setOnClickListener(v -> {
+                toggleDateCheckIn(item.getId(), date, !completed);
+                dialog.dismiss();
+            });
+        }
+
+        container.addView(rowBinding.getRoot());
+    }
+
+    private void toggleDateCheckIn(long habitId, String date, boolean add) {
+        List<HabitItem> habits = repository.readHabits();
+        for (HabitItem target : habits) {
+            if (target.getId() == habitId) {
+                List<String> dates = new ArrayList<>(target.getCompletedDates());
+                if (add) {
+                    if (!dates.contains(date)) dates.add(date);
+                } else {
+                    dates.remove(date);
+                }
+                target.setCompletedDates(dates);
+                break;
+            }
+        }
+        repository.writeHabits(habits);
+        refreshDashboardData();
     }
 
     private void addStatRow(ViewGroup container, String label, String value) {

@@ -4,8 +4,13 @@
     <item
         android:id="@+id/action_export"
         android:icon="@drawable/ic_export"
-        android:title="导出"
+        android:title="导出备份"
         app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_import"
+        android:icon="@android:drawable/stat_sys_download_done"
+        android:title="导入恢复"
+        app:showAsAction="never" />
     <item
         android:id="@+id/action_logout"
         android:icon="@drawable/ic_logout"
