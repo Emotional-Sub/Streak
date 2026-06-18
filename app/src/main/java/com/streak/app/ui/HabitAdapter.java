@@ -107,7 +107,10 @@ public class HabitAdapter extends RecyclerView.Adapter<HabitAdapter.HabitViewHol
             binding.viewStatusDot.setBackgroundResource(
                     completedToday ? R.drawable.bg_status_done : R.drawable.bg_status_pending
             );
-            binding.btnHabitComplete.setText(completedToday ? "已打卡" : "打卡");
+            binding.btnHabitComplete.setImageResource(
+                    completedToday ? R.drawable.ic_check_done : R.drawable.ic_check_pending
+            );
+            binding.btnHabitComplete.setContentDescription(completedToday ? "已打卡" : "打卡");
             binding.btnHabitComplete.setOnClickListener(v -> callback.onToggleComplete(item));
             binding.btnHabitEdit.setOnClickListener(v -> callback.onEdit(item));
             binding.btnHabitDelete.setOnClickListener(v -> callback.onDelete(item));

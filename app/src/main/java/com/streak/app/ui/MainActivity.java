@@ -32,7 +32,9 @@ import com.streak.app.R;
 import com.streak.app.databinding.ActivityMainBinding;
 import com.streak.app.databinding.ItemSheetHabitBinding;
 import com.streak.app.databinding.ItemStatRowBinding;
+import com.streak.app.databinding.ItemTemplateOptionBinding;
 import com.streak.app.databinding.SheetCalendarDetailBinding;
+import com.streak.app.databinding.SheetTemplateChooserBinding;
 import com.streak.app.databinding.ViewDashboardCalendarBinding;
 import com.streak.app.databinding.ViewDashboardHabitsBinding;
 import com.streak.app.databinding.ViewDashboardProfileBinding;
@@ -76,6 +78,19 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private String currentUser = "";
     private String today = HabitUtils.today();
     private File pendingExportFile;
+
+    private static final String[] SLOGANS = {
+            "把想坚持的事放进这里，每天轻轻点一下，进度就会被认真记住。",
+            "今天也是值得记录的一天，先完成，再完美。",
+            "微小的坚持，会在某天给你惊喜。",
+            "别小看每一次打卡，它们正在悄悄塑造你。",
+            "进度不必很快，只要别停下来。",
+            "种一棵树最好的时间是十年前，其次是现在。",
+            "你已经比昨天的自己更靠近目标一点了。",
+            "把大目标拆成今天能做到的一小步。",
+            "坚持一件小事，胜过三分钟热度的雄心。",
+            "每天一点点，攒起来就是了不起。"
+    };
 
     private ActivityResultLauncher<String> notificationPermissionLauncher;
     private ActivityResultLauncher<String> exportLauncher;
@@ -174,7 +189,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                             success ? "导入成功，数据已恢复" : "导入失败，请确认选择的是本应用导出的备份",
                             Toast.LENGTH_SHORT
                     ).show();
-                    if (success) {
+                    if (success && !TextUtils.isEmpty(repository.getCurrentUser())) {
                         refreshDashboardData();
                     }
                 }
@@ -214,6 +229,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     private void setupLoginViews() {
         binding.btnLogin.setOnClickListener(v -> attemptLogin());
+        binding.btnLoginImport.setOnClickListener(v ->
+                importLauncher.launch(new String[]{"application/zip", "application/octet-stream"}));
         binding.tvRegisterAccount.setOnClickListener(v ->
                 registerLauncher.launch(new Intent(this, RegisterActivity.class)));
     }
@@ -352,6 +369,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         habitsBinding.tvSummaryHabitCount.setText(String.valueOf(allHabits.size()));
         habitsBinding.tvSummaryTodayCount.setText(String.valueOf(completedToday));
         habitsBinding.tvSummaryBestStreak.setText(bestStreak + "天");
+        habitsBinding.tvSummarySlogan.setText(SLOGANS[new java.util.Random().nextInt(SLOGANS.length)]);
     }
 
     private void updateCalendarPage() {
@@ -626,23 +644,36 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void showTemplateChooser() {
-        List<HabitTemplate> templates = HabitTemplate.presets();
-        List<String> options = new ArrayList<>();
-        options.add("空白新建");
-        for (HabitTemplate template : templates) {
-            options.add(template.getTitle() + " · " + template.getCategory());
+        SheetTemplateChooserBinding sheetBinding = SheetTemplateChooserBinding.inflate(getLayoutInflater());
+        ViewGroup container = sheetBinding.layoutTemplateContent;
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+
+        // 空白新建
+        addTemplateRow(container, "空白新建", "从零开始，自定义全部内容。", () -> {
+            dialog.dismiss();
+            openEditor(-1L);
+        });
+
+        // 预置模板
+        for (HabitTemplate template : HabitTemplate.presets()) {
+            String desc = template.getCategory() + " · 提醒 " + template.getReminderTime();
+            addTemplateRow(container, template.getTitle(), desc, () -> {
+                dialog.dismiss();
+                openEditorWithTemplate(template);
+            });
         }
 
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("选择习惯模板")
-                .setItems(options.toArray(new String[0]), (dialog, which) -> {
-                    if (which == 0) {
-                        openEditor(-1L);
-                    } else {
-                        openEditorWithTemplate(templates.get(which - 1));
-                    }
-                })
-                .show();
+        dialog.setContentView(sheetBinding.getRoot());
+        dialog.show();
+    }
+
+    private void addTemplateRow(ViewGroup container, String title, String desc, Runnable onClick) {
+        ItemTemplateOptionBinding rowBinding =
+                ItemTemplateOptionBinding.inflate(getLayoutInflater(), container, false);
+        rowBinding.tvTemplateTitle.setText(title);
+        rowBinding.tvTemplateDesc.setText(desc);
+        rowBinding.getRoot().setOnClickListener(v -> onClick.run());
+        container.addView(rowBinding.getRoot());
     }
 
     private void openEditorWithTemplate(HabitTemplate template) {

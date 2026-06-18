@@ -167,6 +167,53 @@ public class AppRepository {
     }
 
     /**
+     * 编辑账号：可同时修改用户名（查重）、昵称、签名、头像、密码。
+     * newPassword 为空表示不改密码。返回 null 表示成功，否则返回错误信息。
+     */
+    public String updateAccount(String oldUsername, String newUsername, String displayName,
+                                String motto, String avatarUri, String newPassword) {
+        if (newUsername == null || newUsername.trim().isEmpty()) {
+            return "用户名不能为空";
+        }
+        newUsername = newUsername.trim();
+        List<UserAccount> accounts = loadAccounts();
+        UserAccount target = null;
+        for (UserAccount account : accounts) {
+            if (account.getUsername().equals(oldUsername)) {
+                target = account;
+            } else if (account.getUsername().equals(newUsername)) {
+                return "该用户名已被占用";
+            }
+        }
+        if (target == null) {
+            return "账号不存在";
+        }
+
+        target.setUsername(newUsername);
+        target.setDisplayName(displayName);
+        target.setMotto(motto);
+        target.setAvatarUri(avatarUri);
+        if (newPassword != null && !newPassword.isEmpty()) {
+            applyHashedPassword(target, newPassword);
+        }
+        saveAccounts(accounts);
+
+        // 同步登录态：当前用户名、记住的用户名/密码
+        SharedPreferences.Editor editor = preferences.edit();
+        if (oldUsername.equals(getCurrentUser())) {
+            editor.putString(KEY_CURRENT_USER, newUsername);
+        }
+        if (oldUsername.equals(getSavedUsername())) {
+            editor.putString(KEY_SAVED_USERNAME, newUsername);
+            if (newPassword != null && !newPassword.isEmpty()) {
+                editor.putString(KEY_SAVED_PASSWORD, newPassword);
+            }
+        }
+        editor.apply();
+        return null;
+    }
+
+    /**
      * 删除当前账号，并清空全部习惯/打卡/照片/头像（习惯为全局共享数据）。
      */
     public void deleteCurrentAccountAndData() {

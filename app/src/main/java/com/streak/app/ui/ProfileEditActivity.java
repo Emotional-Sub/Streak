@@ -83,6 +83,7 @@ public class ProfileEditActivity extends AppCompatActivity {
     private void bindAccount() {
         UserAccount account = repository.getAccount(username);
         String displayName = username;
+        binding.etProfileUsername.setText(username);
         if (account != null) {
             if (!TextUtils.isEmpty(account.getDisplayName())) {
                 displayName = account.getDisplayName();
@@ -140,17 +141,38 @@ public class ProfileEditActivity extends AppCompatActivity {
     }
 
     private void save() {
+        String newUsername = String.valueOf(binding.etProfileUsername.getText()).trim();
         String displayName = String.valueOf(binding.etProfileDisplayName.getText()).trim();
         String motto = String.valueOf(binding.etProfileMotto.getText()).trim();
-        if (displayName.isEmpty()) {
-            displayName = username;
+        String password = String.valueOf(binding.etProfilePassword.getText());
+        String confirm = String.valueOf(binding.etProfileConfirmPassword.getText());
+
+        if (newUsername.isEmpty()) {
+            Toast.makeText(this, "用户名不能为空", Toast.LENGTH_SHORT).show();
+            return;
         }
+        if (displayName.isEmpty()) {
+            displayName = newUsername;
+        }
+        if (!password.isEmpty() && !TextUtils.equals(password, confirm)) {
+            Toast.makeText(this, "两次输入的密码不一致", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String error = repository.updateAccount(
+                username, newUsername, displayName, motto, currentAvatarUri,
+                password.isEmpty() ? null : password);
+        if (error != null) {
+            Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         // 头像换了：删掉旧头像文件
         if (!TextUtils.equals(originalAvatarUri, currentAvatarUri)
                 && !TextUtils.isEmpty(originalAvatarUri)) {
             repository.deletePhoto(originalAvatarUri);
         }
-        repository.updateProfile(username, displayName, motto, currentAvatarUri);
+        username = newUsername;
         originalAvatarUri = currentAvatarUri;
         Toast.makeText(this, "资料已保存", Toast.LENGTH_SHORT).show();
         setResult(RESULT_OK);
