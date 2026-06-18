@@ -1,0 +1,17 @@
+# Android / Gradle
+.gradle/
+.kotlin/
+build/
+app/build/
+captures/
+
+# Local machine config
+local.properties
+
+# IDE files
+.idea/
+*.iml
+
+# Native build cache
+.externalNativeBuild/
+.cxx/
