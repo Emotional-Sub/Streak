@@ -3,12 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
         android:id="@+id/action_export"
-        android:icon="@android:drawable/stat_sys_upload_done"
+        android:icon="@drawable/ic_export"
         android:title="导出"
         app:showAsAction="ifRoom" />
     <item
         android:id="@+id/action_logout"
-        android:icon="@android:drawable/ic_lock_power_off"
+        android:icon="@drawable/ic_logout"
         android:title="退出"
         app:showAsAction="ifRoom" />
 </menu>

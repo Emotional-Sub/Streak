@@ -13,6 +13,7 @@ import com.streak.app.model.HabitBackup;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.UserAccount;
 import com.streak.app.reminder.ReminderScheduler;
+import com.streak.app.util.PasswordHasher;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,12 +58,29 @@ public class AppRepository {
     }
 
     public boolean validateLogin(String username, String password) {
-        for (UserAccount account : loadAccounts()) {
-            if (account.getUsername().equals(username) && account.getPassword().equals(password)) {
-                return true;
+        List<UserAccount> accounts = loadAccounts();
+        boolean migrated = false;
+        boolean matched = false;
+        for (UserAccount account : accounts) {
+            if (!account.getUsername().equals(username)) {
+                continue;
             }
+            if (account.isLegacyPlaintext()) {
+                // 旧明文账号：明文比对成功后立即升级为 PBKDF2 哈希。
+                if (account.getPassword().equals(password)) {
+                    applyHashedPassword(account, password);
+                    migrated = true;
+                    matched = true;
+                }
+            } else if (PasswordHasher.verify(password, account.getSalt(), account.getPasswordHash())) {
+                matched = true;
+            }
+            break;
         }
-        return false;
+        if (migrated) {
+            saveAccounts(accounts);
+        }
+        return matched;
     }
 
     public String registerAccount(String username, String password) {
@@ -75,9 +93,19 @@ public class AppRepository {
                 return "该用户名已存在";
             }
         }
-        accounts.add(new UserAccount(username, password));
+        UserAccount account = new UserAccount();
+        account.setUsername(username);
+        applyHashedPassword(account, password);
+        accounts.add(account);
         saveAccounts(accounts);
         return null;
+    }
+
+    private void applyHashedPassword(UserAccount account, String password) {
+        String salt = PasswordHasher.generateSalt();
+        account.setSalt(salt);
+        account.setPasswordHash(PasswordHasher.hash(password, salt));
+        account.setPassword(null);
     }
 
     public void saveLoginState(String username, String password, boolean rememberPassword, String currentUser) {
@@ -164,6 +192,17 @@ public class AppRepository {
         reminderScheduler.schedule(habit);
     }
 
+    /**
+     * 重新调度所有开启提醒的习惯，用于开机后恢复闹钟。
+     */
+    public void rescheduleAllReminders() {
+        for (HabitItem habit : readHabits()) {
+            if (habit.isReminderEnabled()) {
+                reminderScheduler.schedule(habit);
+            }
+        }
+    }
+
     public void cancelReminder(long habitId) {
         reminderScheduler.cancel(habitId);
     }
@@ -228,8 +267,7 @@ public class AppRepository {
 
     private List<UserAccount> loadAccounts() {
         if (!accountsFile.exists()) {
-            List<UserAccount> defaults = new ArrayList<>();
-            defaults.add(new UserAccount("student", "123456"));
+            List<UserAccount> defaults = defaultAccounts();
             saveAccounts(defaults);
             return defaults;
         }
@@ -238,11 +276,19 @@ public class AppRepository {
             List<UserAccount> accounts = gson.fromJson(reader, type);
             return accounts == null ? new ArrayList<>() : accounts;
         } catch (Exception e) {
-            List<UserAccount> defaults = new ArrayList<>();
-            defaults.add(new UserAccount("student", "123456"));
+            List<UserAccount> defaults = defaultAccounts();
             saveAccounts(defaults);
             return defaults;
         }
+    }
+
+    private List<UserAccount> defaultAccounts() {
+        UserAccount student = new UserAccount();
+        student.setUsername("student");
+        applyHashedPassword(student, "123456");
+        List<UserAccount> defaults = new ArrayList<>();
+        defaults.add(student);
+        return defaults;
     }
 
     private void saveAccounts(List<UserAccount> accounts) {

@@ -249,16 +249,20 @@ public class HabitEditorActivity extends AppCompatActivity {
 
         repository.writeHabits(habits);
         repository.syncReminder(item);
+        savedHabit = true;
         setResult(RESULT_OK, new Intent().putExtra(EXTRA_HABIT_ID, item.getId()));
         finish();
     }
 
+    private boolean savedHabit = false;
+
     @Override
     protected void onDestroy() {
-        if (isFinishing() && originalHabit != null
-                && !TextUtils.equals(originalHabit.getImageUri(), currentImageUri)
-                && !TextUtils.isEmpty(currentImageUri)) {
-            // Saved path is handled in saveHabit; unsaved temporary images are removed here.
+        // 未点保存就退出时，清理本次新拍/新选但未落库的临时照片，避免私有目录残留。
+        if (isFinishing() && !savedHabit
+                && !TextUtils.isEmpty(currentImageUri)
+                && (originalHabit == null || !TextUtils.equals(originalHabit.getImageUri(), currentImageUri))) {
+            repository.deletePhoto(currentImageUri);
         }
         super.onDestroy();
     }

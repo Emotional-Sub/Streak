@@ -52,19 +52,29 @@ public class ReminderScheduler {
 
         long triggerAtMillis = trigger.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         PendingIntent pendingIntent = pendingIntent(habit);
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (canScheduleExact()) {
+            try {
                 alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
-            } else {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
-            }
-        } catch (SecurityException e) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
-            } else {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+                return;
+            } catch (SecurityException ignored) {
+                // 权限被撤销时退回非精确闹钟。
             }
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+        } else {
+            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+        }
+    }
+
+    /**
+     * Android 12（API 31）起精确闹钟需要单独的权限/用户授权，调度前先确认。
+     */
+    private boolean canScheduleExact() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return true;
+        }
+        return alarmManager != null && alarmManager.canScheduleExactAlarms();
     }
 
     public void cancel(long habitId) {
@@ -75,7 +85,8 @@ public class ReminderScheduler {
         Intent intent = new Intent(context, ReminderReceiver.class)
                 .putExtra(ReminderReceiver.EXTRA_TITLE, habit.getTitle())
                 .putExtra(ReminderReceiver.EXTRA_CONTENT, habit.getContent())
-                .putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, (int) habit.getId());
+                .putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, (int) habit.getId())
+                .putExtra(ReminderReceiver.EXTRA_HABIT_ID, habit.getId());
         return PendingIntent.getBroadcast(
                 context,
                 (int) habit.getId(),
