@@ -27,8 +27,8 @@
    - 图片保存到应用私有目录
 
 5. 页面表现
-   - Material 3 风格界面
-   - 登录页、概览卡片、习惯卡片、编辑底部弹层
+   - Material 风格界面
+   - 登录页、概览卡片、习惯卡片、编辑页面、统计页、日历页、个人主页
    - 适合课程演示的完整操作流程
 
 ## 工程信息
@@ -37,8 +37,9 @@
 - 包名：`com.streak.app`
 - 最低版本：`Android 8.0 (API 26)`
 - 目标版本：`Android 14 (API 34)`
-- 构建系统：`Gradle Kotlin DSL`
-- UI：`Jetpack Compose + Material 3`
+- 开发语言：`Java`
+- 构建系统：`Gradle Groovy DSL`
+- UI：`XML ViewBinding + Material Components`
 
 ## 运行方式
 
@@ -51,15 +52,12 @@
 
 ```powershell
 .\gradlew.bat assembleDebug
-.\gradlew.bat test
 ```
 
 ## 构建结果
 
 - Debug APK：`D:\Desktop\develop\Android Studio\Streak\app\build\outputs\apk\debug\app-debug.apk`
-- 单元测试报告：
-  - `D:\Desktop\develop\Android Studio\Streak\app\build\reports\tests\testDebugUnitTest\index.html`
-  - `D:\Desktop\develop\Android Studio\Streak\app\build\reports\tests\testReleaseUnitTest\index.html`
+- 当前 Debug APK 大小约 5.7MB，低于 100MB 提交要求。
 
 ## 建议交付目录
 

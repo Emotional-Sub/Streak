@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Streak" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/streak_primary</item>
+        <item name="colorPrimaryVariant">@color/streak_primary_dark</item>
+        <item name="colorSecondary">@color/streak_accent</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/streak_primary</item>
+        <item name="materialButtonStyle">@style/Widget.Streak.Button</item>
+        <item name="textInputStyle">@style/Widget.Streak.TextInputLayout</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar" tools:targetApi="23">true</item>

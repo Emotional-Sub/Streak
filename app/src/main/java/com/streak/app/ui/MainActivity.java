@@ -1,0 +1,655 @@
+package com.streak.app.ui;
+
+import android.Manifest;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextUtils;
+import android.text.TextWatcher;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.GridLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.activity.EdgeToEdge;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+
+import com.google.android.material.chip.Chip;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.streak.app.R;
+import com.streak.app.databinding.ActivityMainBinding;
+import com.streak.app.databinding.DialogRegisterBinding;
+import com.streak.app.databinding.ItemStatRowBinding;
+import com.streak.app.databinding.ViewDashboardCalendarBinding;
+import com.streak.app.databinding.ViewDashboardHabitsBinding;
+import com.streak.app.databinding.ViewDashboardProfileBinding;
+import com.streak.app.databinding.ViewDashboardStatsBinding;
+import com.streak.app.model.CalendarCell;
+import com.streak.app.model.HabitItem;
+import com.streak.app.storage.AppRepository;
+import com.streak.app.util.HabitUtils;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.OutputStream;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+public class MainActivity extends AppCompatActivity implements HabitAdapter.Callback {
+    private ActivityMainBinding binding;
+    private ViewDashboardHabitsBinding habitsBinding;
+    private ViewDashboardCalendarBinding calendarBinding;
+    private ViewDashboardStatsBinding statsBinding;
+    private ViewDashboardProfileBinding profileBinding;
+    private TextView tvStatsHabitCount;
+    private TextView tvStatsTotalCheckIns;
+    private TextView tvStatsBestStreak;
+    private TextView tvStatsCompletionRate;
+    private TextView tvProfileHabitCount;
+    private TextView tvProfileCheckInCount;
+    private TextView tvProfileTodayCount;
+    private TextView tvProfileBestStreak;
+    private AppRepository repository;
+    private HabitAdapter habitAdapter;
+    private final List<HabitItem> allHabits = new ArrayList<>();
+    private String selectedCategory = "全部";
+    private String currentUser = "";
+    private String today = HabitUtils.today();
+    private File pendingExportFile;
+
+    private ActivityResultLauncher<String> notificationPermissionLauncher;
+    private ActivityResultLauncher<String> exportLauncher;
+    private ActivityResultLauncher<Intent> editorLauncher;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        EdgeToEdge.enable(this);
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+        habitsBinding = ViewDashboardHabitsBinding.bind(findViewById(R.id.pageHabits));
+        calendarBinding = ViewDashboardCalendarBinding.bind(findViewById(R.id.pageCalendar));
+        statsBinding = ViewDashboardStatsBinding.bind(findViewById(R.id.pageStats));
+        profileBinding = ViewDashboardProfileBinding.bind(findViewById(R.id.pageProfile));
+        tvStatsHabitCount = findViewById(R.id.tvStatsHabitCount);
+        tvStatsTotalCheckIns = findViewById(R.id.tvStatsTotalCheckIns);
+        tvStatsBestStreak = findViewById(R.id.tvStatsBestStreak);
+        tvStatsCompletionRate = findViewById(R.id.tvStatsCompletionRate);
+        tvProfileHabitCount = findViewById(R.id.tvProfileHabitCount);
+        tvProfileCheckInCount = findViewById(R.id.tvProfileCheckInCount);
+        tvProfileTodayCount = findViewById(R.id.tvProfileTodayCount);
+        tvProfileBestStreak = findViewById(R.id.tvProfileBestStreak);
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.getRoot(), (v, insets) -> {
+            int top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
+            int bottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
+            binding.toolbarDashboard.setPadding(
+                    binding.toolbarDashboard.getPaddingLeft(),
+                    binding.toolbarDashboard.getPaddingTop() + top,
+                    binding.toolbarDashboard.getPaddingRight(),
+                    binding.toolbarDashboard.getPaddingBottom()
+            );
+            binding.bottomNavigation.setPadding(
+                    binding.bottomNavigation.getPaddingLeft(),
+                    binding.bottomNavigation.getPaddingTop(),
+                    binding.bottomNavigation.getPaddingRight(),
+                    bottom
+            );
+            return insets;
+        });
+
+        repository = new AppRepository(this);
+        habitAdapter = new HabitAdapter(this);
+
+        setupLaunchers();
+        setupLoginViews();
+        setupDashboardViews();
+        requestNotificationPermissionIfNeeded();
+        loadLoginState();
+    }
+
+    private void setupLaunchers() {
+        notificationPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> { }
+        );
+
+        exportLauncher = registerForActivityResult(
+                new ActivityResultContracts.CreateDocument("application/json"),
+                uri -> {
+                    File exportFile = pendingExportFile;
+                    pendingExportFile = null;
+                    if (exportFile == null) {
+                        return;
+                    }
+                    if (uri == null) {
+                        //noinspection ResultOfMethodCallIgnored
+                        exportFile.delete();
+                        Toast.makeText(this, "已取消导出", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    boolean success = copyFileToUri(exportFile, uri);
+                    //noinspection ResultOfMethodCallIgnored
+                    exportFile.delete();
+                    Toast.makeText(
+                            this,
+                            success ? "导出成功，请到你选择的位置查看" : "保存失败，请重试",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                }
+        );
+
+        editorLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK) {
+                        refreshDashboardData();
+                    }
+                }
+        );
+    }
+
+    private void setupLoginViews() {
+        binding.btnLogin.setOnClickListener(v -> attemptLogin());
+        binding.tvRegisterAccount.setOnClickListener(v -> showRegisterDialog());
+    }
+
+    private void setupDashboardViews() {
+        binding.toolbarDashboard.setTitle("每日打卡");
+        binding.toolbarDashboard.inflateMenu(R.menu.menu_dashboard);
+        binding.toolbarDashboard.setOnMenuItemClickListener(this::onToolbarMenuClicked);
+
+        habitsBinding.rvHabits.setLayoutManager(new LinearLayoutManager(this));
+        habitsBinding.rvHabits.setAdapter(habitAdapter);
+
+        buildCategoryChips();
+        habitsBinding.etSearchHabits.addTextChangedListener(simpleWatcher(this::applyHabitFilters));
+
+        binding.bottomNavigation.setOnItemSelectedListener(this::onBottomNavigationSelected);
+        binding.bottomNavigation.setSelectedItemId(R.id.nav_habits);
+
+        binding.fabAddHabit.setOnClickListener(v -> openEditor(-1L));
+    }
+
+    private void loadLoginState() {
+        binding.etLoginUsername.setText(repository.getSavedUsername());
+        binding.etLoginPassword.setText(repository.getSavedPassword());
+        binding.cbRememberPassword.setChecked(repository.isRememberPassword());
+
+        currentUser = repository.getCurrentUser();
+        if (TextUtils.isEmpty(currentUser)) {
+            showLoginPage();
+        } else {
+            showDashboardPage();
+            refreshDashboardData();
+        }
+    }
+
+    private void attemptLogin() {
+        String username = getText(binding.etLoginUsername);
+        String password = getText(binding.etLoginPassword);
+
+        if (username.isEmpty() || password.isEmpty()) {
+            Toast.makeText(this, "请输入用户名和密码", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (repository.validateLogin(username, password)) {
+            repository.saveLoginState(
+                    username,
+                    password,
+                    binding.cbRememberPassword.isChecked(),
+                    username
+            );
+            currentUser = username;
+            showDashboardPage();
+            refreshDashboardData();
+            Toast.makeText(this, "登录成功", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "用户名或密码错误", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showRegisterDialog() {
+        DialogRegisterBinding dialogBinding = DialogRegisterBinding.inflate(getLayoutInflater());
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("注册账号")
+                .setView(dialogBinding.getRoot())
+                .setNegativeButton("取消", null)
+                .setPositiveButton("注册", (dialog, which) -> {
+                    String username = getText(dialogBinding.etRegisterUsername);
+                    String password = getText(dialogBinding.etRegisterPassword);
+                    String confirmPassword = getText(dialogBinding.etRegisterConfirmPassword);
+                    if (username.isEmpty() || password.isEmpty()) {
+                        Toast.makeText(this, "用户名和密码不能为空", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (!TextUtils.equals(password, confirmPassword)) {
+                        Toast.makeText(this, "两次输入的密码不一致", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String error = repository.registerAccount(username, password);
+                    Toast.makeText(
+                            this,
+                            error == null ? "注册成功，请登录" : error,
+                            Toast.LENGTH_SHORT
+                    ).show();
+                })
+                .show();
+    }
+
+    private boolean onToolbarMenuClicked(@NonNull MenuItem item) {
+        int itemId = item.getItemId();
+        if (itemId == R.id.action_export) {
+            exportBackup();
+            return true;
+        }
+        if (itemId == R.id.action_logout) {
+            repository.logout();
+            currentUser = "";
+            showLoginPage();
+            return true;
+        }
+        return false;
+    }
+
+    private boolean onBottomNavigationSelected(@NonNull MenuItem item) {
+        habitsBinding.pageHabits.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
+        calendarBinding.pageCalendar.setVisibility(item.getItemId() == R.id.nav_calendar ? View.VISIBLE : View.GONE);
+        statsBinding.pageStats.setVisibility(item.getItemId() == R.id.nav_stats ? View.VISIBLE : View.GONE);
+        profileBinding.pageProfile.setVisibility(item.getItemId() == R.id.nav_profile ? View.VISIBLE : View.GONE);
+        binding.fabAddHabit.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
+        return true;
+    }
+
+    private void showLoginPage() {
+        binding.loginContainer.setVisibility(View.VISIBLE);
+        binding.dashboardRoot.setVisibility(View.GONE);
+    }
+
+    private void showDashboardPage() {
+        binding.loginContainer.setVisibility(View.GONE);
+        binding.dashboardRoot.setVisibility(View.VISIBLE);
+    }
+
+    private void refreshDashboardData() {
+        today = HabitUtils.today();
+        currentUser = repository.getCurrentUser();
+        allHabits.clear();
+        allHabits.addAll(repository.readHabits());
+        binding.toolbarDashboard.setSubtitle("欢迎你，" + currentUser);
+        applyHabitFilters();
+        updateSummarySection();
+        updateCalendarPage();
+        updateStatsPage();
+        updateProfilePage();
+    }
+
+    private void applyHabitFilters() {
+        String query = getText(habitsBinding.etSearchHabits);
+        List<HabitItem> filtered = HabitUtils.filterHabits(allHabits, query, selectedCategory);
+        habitAdapter.submitList(filtered, today);
+        habitsBinding.tvEmptyHabits.setVisibility(filtered.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    private void updateSummarySection() {
+        int completedToday = 0;
+        int bestStreak = 0;
+        for (HabitItem item : allHabits) {
+            if (item.getCompletedDates().contains(today)) {
+                completedToday++;
+            }
+            bestStreak = Math.max(bestStreak, HabitUtils.currentStreak(item.getCompletedDates()));
+        }
+        habitsBinding.tvSummaryHabitCount.setText(String.valueOf(allHabits.size()));
+        habitsBinding.tvSummaryTodayCount.setText(String.valueOf(completedToday));
+        habitsBinding.tvSummaryBestStreak.setText(bestStreak + "天");
+    }
+
+    private void updateCalendarPage() {
+        calendarBinding.tvCalendarMonth.setText(
+                LocalDate.parse(today).format(DateTimeFormatter.ofPattern("yyyy 年 MM 月", Locale.CHINA))
+        );
+        Set<String> completedSet = new HashSet<>();
+        for (HabitItem item : allHabits) {
+            completedSet.addAll(item.getCompletedDates());
+        }
+        List<CalendarCell> cells = HabitUtils.buildMonthCells(today, completedSet);
+        calendarBinding.gridCalendar.removeAllViews();
+        int cellSize = (int) (40 * getResources().getDisplayMetrics().density);
+        for (CalendarCell cell : cells) {
+            TextView textView = new TextView(this);
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+            params.width = 0;
+            params.height = cellSize;
+            params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+            textView.setLayoutParams(params);
+            textView.setGravity(android.view.Gravity.CENTER);
+            textView.setText(cell.isEmpty() ? "" : String.valueOf(cell.getDay()));
+            textView.setTextColor(ContextCompat.getColor(this, android.R.color.black));
+            if (cell.isToday()) {
+                textView.setBackgroundResource(R.drawable.bg_calendar_today);
+                textView.setTextColor(ContextCompat.getColor(this, android.R.color.white));
+            } else if (cell.isCompleted()) {
+                textView.setBackgroundResource(R.drawable.bg_calendar_completed);
+                textView.setTextColor(0xFF1A7F4B);
+            } else {
+                textView.setBackgroundResource(R.drawable.bg_calendar_default);
+                textView.setTextColor(0xFF6B7280);
+            }
+            if (!cell.isEmpty()) {
+                textView.setOnClickListener(v -> showCalendarDetailDialog(cell.getDate()));
+            }
+            calendarBinding.gridCalendar.addView(textView);
+        }
+
+        calendarBinding.layoutRankingContainer.removeAllViews();
+        if (allHabits.isEmpty()) {
+            calendarBinding.tvCalendarEmpty.setVisibility(View.VISIBLE);
+            return;
+        }
+        calendarBinding.tvCalendarEmpty.setVisibility(View.GONE);
+        List<HabitItem> ranking = new ArrayList<>(allHabits);
+        ranking.sort((a, b) -> Integer.compare(
+                HabitUtils.currentStreak(b.getCompletedDates()),
+                HabitUtils.currentStreak(a.getCompletedDates())
+        ));
+        int limit = Math.min(5, ranking.size());
+        for (int i = 0; i < limit; i++) {
+            HabitItem item = ranking.get(i);
+            ItemStatRowBinding rowBinding = ItemStatRowBinding.inflate(getLayoutInflater(), calendarBinding.layoutRankingContainer, false);
+            rowBinding.tvStatLabel.setText((i + 1) + ". " + item.getTitle() + " · " + item.getCategory());
+            rowBinding.tvStatValue.setText(HabitUtils.currentStreak(item.getCompletedDates()) + " 天");
+            calendarBinding.layoutRankingContainer.addView(rowBinding.getRoot());
+        }
+    }
+
+    private void updateStatsPage() {
+        int totalCheckIns = HabitUtils.totalCheckIns(allHabits);
+        int bestStreak = 0;
+        for (HabitItem item : allHabits) {
+            bestStreak = Math.max(bestStreak, HabitUtils.currentStreak(item.getCompletedDates()));
+        }
+        tvStatsHabitCount.setText(String.valueOf(allHabits.size()));
+        tvStatsTotalCheckIns.setText(String.valueOf(totalCheckIns));
+        tvStatsBestStreak.setText(bestStreak + "天");
+        tvStatsCompletionRate.setText(HabitUtils.completionRate(allHabits) + "%");
+
+        statsBinding.layoutOverviewStats.removeAllViews();
+        addStatRow(statsBinding.layoutOverviewStats, "最近 7 天打卡次数", String.valueOf(HabitUtils.weeklyCheckIns(allHabits)));
+        addStatRow(statsBinding.layoutOverviewStats, "本月打卡次数", String.valueOf(HabitUtils.monthlyCheckIns(allHabits)));
+        int reminderCount = 0;
+        for (HabitItem item : allHabits) {
+            if (item.isReminderEnabled()) {
+                reminderCount++;
+            }
+        }
+        addStatRow(statsBinding.layoutOverviewStats, "开启提醒的习惯", String.valueOf(reminderCount));
+
+        statsBinding.layoutCategoryStats.removeAllViews();
+        if (allHabits.isEmpty()) {
+            statsBinding.tvEmptyStats.setVisibility(View.VISIBLE);
+            return;
+        }
+        statsBinding.tvEmptyStats.setVisibility(View.GONE);
+        List<String> categories = HabitUtils.categories();
+        for (String category : categories) {
+            if ("全部".equals(category)) {
+                continue;
+            }
+            int count = 0;
+            for (HabitItem item : allHabits) {
+                if (category.equals(item.getCategory())) {
+                    count += item.getCompletedDates().size();
+                }
+            }
+            if (count > 0) {
+                addStatRow(statsBinding.layoutCategoryStats, category, String.valueOf(count));
+            }
+        }
+    }
+
+    private void updateProfilePage() {
+        String displayName = TextUtils.isEmpty(currentUser) ? "未登录" : currentUser;
+        profileBinding.tvProfileName.setText(displayName);
+        profileBinding.tvProfileAvatar.setText(displayName.substring(0, 1).toUpperCase(Locale.ROOT));
+
+        int totalCheckIns = HabitUtils.totalCheckIns(allHabits);
+        int bestStreak = 0;
+        int completedToday = 0;
+        int reminderCount = 0;
+        HabitItem bestHabit = null;
+        for (HabitItem item : allHabits) {
+            if (item.getCompletedDates().contains(today)) {
+                completedToday++;
+            }
+            if (item.isReminderEnabled()) {
+                reminderCount++;
+            }
+            int streak = HabitUtils.currentStreak(item.getCompletedDates());
+            if (streak > bestStreak) {
+                bestStreak = streak;
+                bestHabit = item;
+            }
+        }
+        tvProfileHabitCount.setText(String.valueOf(allHabits.size()));
+        tvProfileCheckInCount.setText(String.valueOf(totalCheckIns));
+        tvProfileTodayCount.setText(String.valueOf(completedToday));
+        tvProfileBestStreak.setText(bestStreak + "天");
+
+        profileBinding.layoutProfileInfo.removeAllViews();
+        addStatRow(profileBinding.layoutProfileInfo, "当前用户", displayName);
+        addStatRow(profileBinding.layoutProfileInfo, "今日日期", today);
+        addStatRow(profileBinding.layoutProfileInfo, "提醒已开启", reminderCount + " 项");
+
+        if (bestHabit == null) {
+            profileBinding.cardBestHabit.setVisibility(View.GONE);
+        } else {
+            profileBinding.cardBestHabit.setVisibility(View.VISIBLE);
+            profileBinding.tvBestHabitTitle.setText(bestHabit.getTitle());
+            profileBinding.tvBestHabitCategory.setText("所属分类：" + bestHabit.getCategory());
+            profileBinding.tvBestHabitStreak.setText("连续打卡：" + HabitUtils.currentStreak(bestHabit.getCompletedDates()) + " 天");
+        }
+
+        profileBinding.layoutProfileCategories.removeAllViews();
+        for (String category : HabitUtils.categories()) {
+            if ("全部".equals(category)) {
+                continue;
+            }
+            int count = 0;
+            for (HabitItem item : allHabits) {
+                if (category.equals(item.getCategory())) {
+                    count++;
+                }
+            }
+            if (count > 0) {
+                addStatRow(profileBinding.layoutProfileCategories, category, count + " 项");
+            }
+        }
+    }
+
+    private void exportBackup() {
+        File exportFile = repository.exportBackup();
+        pendingExportFile = exportFile;
+        exportLauncher.launch(exportFile.getName());
+    }
+
+    private void openEditor(long habitId) {
+        Intent intent = new Intent(this, HabitEditorActivity.class);
+        if (habitId > 0) {
+            intent.putExtra(HabitEditorActivity.EXTRA_HABIT_ID, habitId);
+        }
+        editorLauncher.launch(intent);
+    }
+
+    private void buildCategoryChips() {
+        habitsBinding.chipGroupCategories.removeAllViews();
+        for (String category : HabitUtils.categories()) {
+            Chip chip = new Chip(this);
+            chip.setText(category);
+            chip.setCheckable(true);
+            chip.setTag(category);
+            chip.setEnsureMinTouchTargetSize(false);
+            chip.setOnClickListener(v -> {
+                selectedCategory = String.valueOf(chip.getTag());
+                applyHabitFilters();
+            });
+            habitsBinding.chipGroupCategories.addView(chip);
+            if ("全部".equals(category)) {
+                chip.setChecked(true);
+            }
+        }
+    }
+
+    private void showCalendarDetailDialog(String date) {
+        List<String> completed = new ArrayList<>();
+        List<String> pending = new ArrayList<>();
+        for (HabitItem item : allHabits) {
+            if (item.getCompletedDates().contains(date)) {
+                completed.add(item.getTitle());
+            } else {
+                pending.add(item.getTitle());
+            }
+        }
+
+        StringBuilder message = new StringBuilder();
+        message.append("已完成 ").append(completed.size()).append(" 项，未完成 ").append(pending.size()).append(" 项\n\n");
+        if (!completed.isEmpty()) {
+            message.append("已完成习惯\n");
+            for (String title : completed) {
+                message.append("• ").append(title).append("\n");
+            }
+            message.append("\n");
+        }
+        if (!pending.isEmpty()) {
+            message.append("未完成习惯\n");
+            for (String title : pending) {
+                message.append("• ").append(title).append("\n");
+            }
+        }
+        if (completed.isEmpty() && pending.isEmpty()) {
+            message.append("当天还没有任何习惯记录。");
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(date + " 打卡详情")
+                .setMessage(message.toString().trim())
+                .setPositiveButton("知道了", null)
+                .show();
+    }
+
+    private void addStatRow(ViewGroup container, String label, String value) {
+        ItemStatRowBinding rowBinding = ItemStatRowBinding.inflate(getLayoutInflater(), container, false);
+        rowBinding.tvStatLabel.setText(label);
+        rowBinding.tvStatValue.setText(value);
+        container.addView(rowBinding.getRoot());
+    }
+
+    private String getText(TextView textView) {
+        return String.valueOf(textView.getText()).trim();
+    }
+
+    private TextWatcher simpleWatcher(Runnable callback) {
+        return new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                callback.run();
+            }
+        };
+    }
+
+    private boolean copyFileToUri(File file, Uri uri) {
+        try (FileInputStream inputStream = new FileInputStream(file);
+             OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+            if (outputStream == null) {
+                return false;
+            }
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+        }
+    }
+
+    @Override
+    public void onToggleComplete(HabitItem item) {
+        List<HabitItem> habits = repository.readHabits();
+        for (HabitItem target : habits) {
+            if (target.getId() == item.getId()) {
+                List<String> completedDates = new ArrayList<>(target.getCompletedDates());
+                if (completedDates.contains(today)) {
+                    completedDates.remove(today);
+                } else {
+                    completedDates.add(today);
+                }
+                target.setCompletedDates(completedDates);
+                break;
+            }
+        }
+        repository.writeHabits(habits);
+        refreshDashboardData();
+    }
+
+    @Override
+    public void onEdit(HabitItem item) {
+        openEditor(item.getId());
+    }
+
+    @Override
+    public void onDelete(HabitItem item) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("删除习惯")
+                .setMessage("确定删除“" + item.getTitle() + "”吗？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> {
+                    List<HabitItem> habits = repository.readHabits();
+                    List<HabitItem> updated = new ArrayList<>();
+                    for (HabitItem target : habits) {
+                        if (target.getId() != item.getId()) {
+                            updated.add(target);
+                        }
+                    }
+                    repository.writeHabits(updated);
+                    repository.cancelReminder(item.getId());
+                    repository.deletePhoto(item.getImageUri());
+                    refreshDashboardData();
+                })
+                .show();
+    }
+}
