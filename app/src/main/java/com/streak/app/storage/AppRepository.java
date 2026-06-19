@@ -27,7 +27,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -227,7 +229,8 @@ public class AppRepository {
     }
 
     /**
-     * 删除当前账号，并清空全部习惯/打卡/照片/头像（习惯为全局共享数据）。
+     * 删除当前账号，并清空全部习惯/打卡及其照片（习惯为全局共享数据）。
+     * 只删除本账号头像，保留其它账号的头像文件。
      */
     public void deleteCurrentAccountAndData() {
         String username = getCurrentUser();
@@ -242,30 +245,18 @@ public class AppRepository {
         }
         saveAccounts(remaining);
 
-        // 清空习惯、取消提醒、删除所有图片
+        // 清空习惯、取消提醒、删除习惯照片（不动其它账号的头像）
         for (HabitItem habit : readHabits()) {
             reminderScheduler.cancel(habit.getId());
             deletePhoto(habit.getImageUri());
         }
         writeHabits(new ArrayList<>());
-        clearImageDir();
 
         logout();
         preferences.edit()
                 .putString(KEY_SAVED_USERNAME, "")
                 .putString(KEY_SAVED_PASSWORD, "")
                 .apply();
-    }
-
-    private void clearImageDir() {
-        File[] files = imageDir.listFiles();
-        if (files == null) {
-            return;
-        }
-        for (File file : files) {
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
-        }
     }
 
     /**
@@ -348,8 +339,9 @@ public class AppRepository {
             );
             writeZipEntry(zos, "habits.json", gson.toJson(backup).getBytes(StandardCharsets.UTF_8));
 
-            // 2) 账号资料 JSON（含头像引用，不含密码哈希也可，但这里整体备份）
-            writeZipEntry(zos, "accounts.json", gson.toJson(accounts).getBytes(StandardCharsets.UTF_8));
+            // 2) 账号资料 JSON（仅资料字段，不含密码哈希/盐/明文，避免随备份泄露）
+            writeZipEntry(zos, "accounts.json",
+                    gson.toJson(sanitizeAccountsForExport(accounts)).getBytes(StandardCharsets.UTF_8));
 
             // 3) 所有引用到的图片（习惯照片 + 头像），打包进 images/ 目录，文件名即原名
             for (HabitItem habit : habits) {
@@ -361,6 +353,23 @@ public class AppRepository {
         } catch (Exception ignored) {
         }
         return zipFile;
+    }
+
+    /**
+     * 备份里只保留可分享的资料字段（用户名/昵称/签名/头像），
+     * 剔除 passwordHash、salt、明文 password，避免备份包泄露凭据。
+     */
+    private List<UserAccount> sanitizeAccountsForExport(List<UserAccount> accounts) {
+        List<UserAccount> safe = new ArrayList<>();
+        for (UserAccount account : accounts) {
+            UserAccount copy = new UserAccount();
+            copy.setUsername(account.getUsername());
+            copy.setDisplayName(account.getDisplayName());
+            copy.setMotto(account.getMotto());
+            copy.setAvatarUri(account.getAvatarUri());
+            safe.add(copy);
+        }
+        return safe;
     }
 
     private void writeZipEntry(ZipOutputStream zos, String name, byte[] data) throws Exception {
@@ -407,7 +416,8 @@ public class AppRepository {
     }
 
     /**
-     * 从 ZIP 备份恢复：还原图片到私有目录，并把 json 中的图片路径重映射到新位置。
+     * 从 ZIP 备份恢复：先把所有条目读入内存并校验 habits.json 可解析，
+     * 全部通过后再落地图片、改写习惯/账号，避免「图片已覆盖但 json 解析失败」无法回滚。
      * 返回是否成功。
      */
     public boolean importBackup(Uri zipUri) {
@@ -415,11 +425,11 @@ public class AppRepository {
             if (rawInput == null) {
                 return false;
             }
-            // 先把整包读出来，因为要分两遍处理（先解图片再改路径）
-            // 为简单起见，单遍解压：图片直接落地，json 暂存
             byte[] habitsJson = null;
             byte[] accountsJson = null;
+            Map<String, byte[]> images = new HashMap<>();
 
+            // 第一遍：全部读入内存，不写磁盘
             try (ZipInputStream zis = new ZipInputStream(rawInput)) {
                 ZipEntry entry;
                 byte[] buffer = new byte[8192];
@@ -435,14 +445,8 @@ public class AppRepository {
                         accountsJson = readEntryBytes(zis, buffer);
                     } else if (name.startsWith("images/")) {
                         String fileName = name.substring("images/".length());
-                        if (!fileName.isEmpty() && !fileName.contains("..")) {
-                            File out = new File(imageDir, fileName);
-                            try (FileOutputStream fos = new FileOutputStream(out)) {
-                                int read;
-                                while ((read = zis.read(buffer)) != -1) {
-                                    fos.write(buffer, 0, read);
-                                }
-                            }
+                        if (isSafeImageName(fileName)) {
+                            images.put(fileName, readEntryBytes(zis, buffer));
                         }
                     }
                     zis.closeEntry();
@@ -453,12 +457,26 @@ public class AppRepository {
                 return false;
             }
 
-            // 还原习惯，并把图片路径重映射到本机 imageDir/<原文件名>
+            // 校验：habits.json 必须能解析出习惯列表，否则直接放弃，不动任何现有数据
             HabitBackup backup = gson.fromJson(
                     new String(habitsJson, StandardCharsets.UTF_8), HabitBackup.class);
             if (backup == null || backup.getHabits() == null) {
                 return false;
             }
+
+            // 校验通过，开始落地图片
+            for (Map.Entry<String, byte[]> img : images.entrySet()) {
+                File out = new File(imageDir, img.getKey());
+                // 规范化路径，确保仍在 imageDir 内（防 Zip Slip）
+                if (!out.getCanonicalPath().startsWith(imageDir.getCanonicalPath() + File.separator)) {
+                    continue;
+                }
+                try (FileOutputStream fos = new FileOutputStream(out)) {
+                    fos.write(img.getValue());
+                }
+            }
+
+            // 还原习惯，并把图片路径重映射到本机 imageDir/<原文件名>
             List<HabitItem> habits = backup.getHabits();
             for (HabitItem habit : habits) {
                 habit.setImageUri(remapImageUri(habit.getImageUri()));
@@ -473,8 +491,11 @@ public class AppRepository {
                 if (imported != null) {
                     List<UserAccount> current = loadAccounts();
                     for (UserAccount importedAccount : imported) {
+                        if (importedAccount == null || importedAccount.getUsername() == null) {
+                            continue;
+                        }
                         for (UserAccount existing : current) {
-                            if (existing.getUsername().equals(importedAccount.getUsername())) {
+                            if (importedAccount.getUsername().equals(existing.getUsername())) {
                                 existing.setDisplayName(importedAccount.getDisplayName());
                                 existing.setMotto(importedAccount.getMotto());
                                 existing.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
@@ -492,6 +513,14 @@ public class AppRepository {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean isSafeImageName(String fileName) {
+        return fileName != null
+                && !fileName.isEmpty()
+                && !fileName.contains("..")
+                && !fileName.contains("/")
+                && !fileName.contains("\\");
     }
 
     private byte[] readEntryBytes(ZipInputStream zis, byte[] buffer) throws Exception {
