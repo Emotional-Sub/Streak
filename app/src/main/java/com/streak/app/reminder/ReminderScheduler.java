@@ -81,15 +81,23 @@ public class ReminderScheduler {
         alarmManager.cancel(pendingIntent(habitId));
     }
 
+    /**
+     * 习惯 ID 是毫秒时间戳（超出 int 范围），直接 (int) 截断会让不同习惯撞码、
+     * 共用同一个闹钟/通知。用 Long.hashCode 把高低位混合，降低碰撞概率。
+     */
+    private static int requestCode(long habitId) {
+        return Long.hashCode(habitId) & 0x7FFFFFFF;
+    }
+
     private PendingIntent pendingIntent(HabitItem habit) {
         Intent intent = new Intent(context, ReminderReceiver.class)
                 .putExtra(ReminderReceiver.EXTRA_TITLE, habit.getTitle())
                 .putExtra(ReminderReceiver.EXTRA_CONTENT, habit.getContent())
-                .putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, (int) habit.getId())
+                .putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, requestCode(habit.getId()))
                 .putExtra(ReminderReceiver.EXTRA_HABIT_ID, habit.getId());
         return PendingIntent.getBroadcast(
                 context,
-                (int) habit.getId(),
+                requestCode(habit.getId()),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
@@ -99,7 +107,7 @@ public class ReminderScheduler {
         Intent intent = new Intent(context, ReminderReceiver.class);
         return PendingIntent.getBroadcast(
                 context,
-                (int) habitId,
+                requestCode(habitId),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
