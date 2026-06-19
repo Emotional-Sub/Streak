@@ -100,10 +100,21 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private ActivityResultLauncher<Intent> registerLauncher;
     private ActivityResultLauncher<Intent> profileEditLauncher;
 
+    private final java.util.concurrent.ExecutorService backgroundExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final android.os.Handler mainHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
+        if (savedInstanceState != null) {
+            String path = savedInstanceState.getString("pending_export_file");
+            if (path != null) {
+                pendingExportFile = new File(path);
+            }
+        }
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         habitsBinding = ViewDashboardHabitsBinding.bind(findViewById(R.id.pageHabits));
@@ -147,6 +158,20 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         loadLoginState();
     }
 
+    @Override
+    protected void onDestroy() {
+        backgroundExecutor.shutdown();
+        super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (pendingExportFile != null) {
+            outState.putString("pending_export_file", pendingExportFile.getAbsolutePath());
+        }
+    }
+
     private void setupLaunchers() {
         notificationPermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
@@ -167,14 +192,16 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                         Toast.makeText(this, "已取消导出", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    boolean success = copyFileToUri(exportFile, uri);
-                    //noinspection ResultOfMethodCallIgnored
-                    exportFile.delete();
-                    Toast.makeText(
-                            this,
-                            success ? "备份已导出（含照片），请到你选择的位置查看" : "保存失败，请重试",
-                            Toast.LENGTH_SHORT
-                    ).show();
+                    backgroundExecutor.execute(() -> {
+                        boolean success = copyFileToUri(exportFile, uri);
+                        //noinspection ResultOfMethodCallIgnored
+                        exportFile.delete();
+                        mainHandler.post(() -> Toast.makeText(
+                                this,
+                                success ? "备份已导出（含照片），请到你选择的位置查看" : "保存失败，请重试",
+                                Toast.LENGTH_SHORT
+                        ).show());
+                    });
                 }
         );
 
@@ -184,15 +211,20 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     if (uri == null) {
                         return;
                     }
-                    boolean success = repository.importBackup(uri);
-                    Toast.makeText(
-                            this,
-                            success ? "导入成功，数据已恢复" : "导入失败，请确认选择的是本应用导出的备份",
-                            Toast.LENGTH_SHORT
-                    ).show();
-                    if (success && !TextUtils.isEmpty(repository.getCurrentUser())) {
-                        refreshDashboardData();
-                    }
+                    Toast.makeText(this, "正在导入恢复…", Toast.LENGTH_SHORT).show();
+                    backgroundExecutor.execute(() -> {
+                        boolean success = repository.importBackup(uri);
+                        mainHandler.post(() -> {
+                            Toast.makeText(
+                                    this,
+                                    success ? "导入成功，数据已恢复" : "导入失败，请确认选择的是本应用导出的备份",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+                            if (success && !TextUtils.isEmpty(repository.getCurrentUser())) {
+                                refreshDashboardData();
+                            }
+                        });
+                    });
                 }
         );
 
@@ -230,8 +262,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     private void setupLoginViews() {
         binding.btnLogin.setOnClickListener(v -> attemptLogin());
-        binding.btnLoginImport.setOnClickListener(v ->
-                importLauncher.launch(new String[]{"application/zip", "application/octet-stream"}));
+        binding.btnLoginImport.setOnClickListener(v -> confirmImport());
         binding.tvRegisterAccount.setOnClickListener(v ->
                 registerLauncher.launch(new Intent(this, RegisterActivity.class)));
     }
@@ -304,7 +335,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             return true;
         }
         if (itemId == R.id.action_import) {
-            importLauncher.launch(new String[]{"application/zip", "application/octet-stream"});
+            confirmImport();
             return true;
         }
         if (itemId == R.id.action_logout) {
@@ -557,7 +588,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
         profileBinding.tvProfileName.setText(displayName);
         profileBinding.tvProfileMotto.setText(motto);
-        profileBinding.tvProfileAvatar.setText(displayName.substring(0, 1).toUpperCase(Locale.ROOT));
+        profileBinding.tvProfileAvatar.setText(
+                displayName.isEmpty() ? "U" : displayName.substring(0, 1).toUpperCase(Locale.ROOT));
 
         if (!TextUtils.isEmpty(avatarUri)) {
             profileBinding.ivProfileAvatar.setVisibility(View.VISIBLE);
@@ -624,9 +656,24 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void exportBackup() {
-        File exportFile = repository.exportBackup();
-        pendingExportFile = exportFile;
-        exportLauncher.launch(exportFile.getName());
+        Toast.makeText(this, "正在打包备份…", Toast.LENGTH_SHORT).show();
+        backgroundExecutor.execute(() -> {
+            File exportFile = repository.exportBackup();
+            mainHandler.post(() -> {
+                pendingExportFile = exportFile;
+                exportLauncher.launch(exportFile.getName());
+            });
+        });
+    }
+
+    private void confirmImport() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("导入恢复")
+                .setMessage("导入会用备份中的习惯数据覆盖当前全部习惯和打卡记录，无法撤销。确定继续吗？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("选择备份文件", (dialog, which) ->
+                        importLauncher.launch(new String[]{"application/zip", "application/octet-stream"}))
+                .show();
     }
 
     private void confirmDeleteAccount() {

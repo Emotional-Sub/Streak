@@ -49,6 +49,22 @@ public class ProfileEditActivity extends AppCompatActivity {
         binding.btnProfileSave.setOnClickListener(v -> save());
 
         bindAccount();
+
+        // 恢复因旋转/进程回收丢失的临时状态（覆盖 bindAccount 设置的头像）
+        if (savedInstanceState != null) {
+            pendingCameraPath = savedInstanceState.getString("pending_camera_path");
+            if (savedInstanceState.containsKey("current_avatar_uri")) {
+                currentAvatarUri = savedInstanceState.getString("current_avatar_uri");
+                renderAvatar();
+            }
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putString("pending_camera_path", pendingCameraPath);
+        outState.putString("current_avatar_uri", currentAvatarUri);
     }
 
     private void setupLaunchers() {

@@ -60,6 +60,29 @@ public class HabitEditorActivity extends AppCompatActivity {
         setupActivityResultLaunchers();
         setupActions();
         bindHabitData();
+
+        // 恢复因旋转/进程回收丢失的临时状态
+        if (savedInstanceState != null) {
+            pendingCameraPath = savedInstanceState.getString("pending_camera_path");
+            if (savedInstanceState.containsKey("current_image_uri")) {
+                String savedImage = savedInstanceState.getString("current_image_uri");
+                if (TextUtils.isEmpty(savedImage)) {
+                    removeImage();
+                } else {
+                    currentImageUri = savedImage;
+                    binding.ivEditorPreview.setImageURI(Uri.parse(savedImage));
+                    binding.ivEditorPreview.setVisibility(android.view.View.VISIBLE);
+                    binding.btnRemovePhoto.setVisibility(android.view.View.VISIBLE);
+                }
+            }
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putString("pending_camera_path", pendingCameraPath);
+        outState.putString("current_image_uri", currentImageUri);
     }
 
     private void setupToolbar() {

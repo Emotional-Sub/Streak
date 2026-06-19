@@ -63,7 +63,7 @@ public class HabitItem {
     }
 
     public String getReminderTime() {
-        return reminderTime;
+        return reminderTime == null ? "20:00" : reminderTime;
     }
 
     public void setReminderTime(String reminderTime) {
@@ -87,7 +87,7 @@ public class HabitItem {
     }
 
     public String getCategory() {
-        return category;
+        return category == null ? "学习" : category;
     }
 
     public void setCategory(String category) {
@@ -95,6 +95,9 @@ public class HabitItem {
     }
 
     public List<String> getTags() {
+        if (tags == null) {
+            tags = new ArrayList<>();
+        }
         return tags;
     }
 
@@ -103,6 +106,9 @@ public class HabitItem {
     }
 
     public List<String> getCompletedDates() {
+        if (completedDates == null) {
+            completedDates = new ArrayList<>();
+        }
         return completedDates;
     }
 
