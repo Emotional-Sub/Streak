@@ -30,6 +30,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.streak.app.R;
 import com.streak.app.databinding.ActivityMainBinding;
+import com.streak.app.databinding.ItemBadgeBinding;
 import com.streak.app.databinding.ItemSheetHabitBinding;
 import com.streak.app.databinding.ItemStatRowBinding;
 import com.streak.app.databinding.ItemTemplateOptionBinding;
@@ -41,11 +42,13 @@ import com.streak.app.databinding.ViewDashboardHabitsBinding;
 import com.streak.app.databinding.ViewDashboardProfileBinding;
 import com.streak.app.databinding.ViewDashboardStatsBinding;
 import com.streak.app.model.CalendarCell;
+import com.streak.app.model.Badge;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.HabitTemplate;
 import com.streak.app.model.UserAccount;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.util.AvatarPresets;
+import com.streak.app.util.BadgeUtils;
 import com.streak.app.util.HabitUtils;
 
 import java.io.File;
@@ -287,6 +290,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         profileBinding.btnEditProfile.setOnClickListener(v ->
                 profileEditLauncher.launch(new Intent(this, ProfileEditActivity.class)));
         profileBinding.btnDeleteAccount.setOnClickListener(v -> confirmDeleteAccount());
+        profileBinding.cardBadgeWall.setOnClickListener(v ->
+                startActivity(new Intent(this, BadgeWallActivity.class)));
     }
 
     private void loadLoginState() {
@@ -657,6 +662,41 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             if (count > 0) {
                 addStatRow(profileBinding.layoutProfileCategories, category, count + " 项");
             }
+        }
+
+        updateBadgePreview();
+    }
+
+    private void updateBadgePreview() {
+        List<Badge> badges = BadgeUtils.evaluate(allHabits);
+        int unlocked = BadgeUtils.unlockedCount(badges);
+        profileBinding.tvBadgeProgress.setText(unlocked + " / " + badges.size());
+
+        profileBinding.layoutBadgePreview.removeAllViews();
+        List<Badge> unlockedBadges = new ArrayList<>();
+        for (Badge badge : badges) {
+            if (badge.isUnlocked()) {
+                unlockedBadges.add(badge);
+            }
+        }
+
+        if (unlockedBadges.isEmpty()) {
+            profileBinding.tvBadgeEmpty.setVisibility(View.VISIBLE);
+            profileBinding.scrollBadgePreview.setVisibility(View.GONE);
+            return;
+        }
+        profileBinding.tvBadgeEmpty.setVisibility(View.GONE);
+        profileBinding.scrollBadgePreview.setVisibility(View.VISIBLE);
+
+        for (Badge badge : unlockedBadges) {
+            ItemBadgeBinding badgeBinding =
+                    ItemBadgeBinding.inflate(getLayoutInflater(), profileBinding.layoutBadgePreview, false);
+            badgeBinding.tvBadgeIcon.setText(badge.getEmoji());
+            badgeBinding.tvBadgeName.setText(badge.getTitle());
+            badgeBinding.tvBadgeIcon.setBackgroundResource(R.drawable.bg_badge_unlocked);
+            badgeBinding.getRoot().setOnClickListener(v ->
+                    startActivity(new Intent(this, BadgeWallActivity.class)));
+            profileBinding.layoutBadgePreview.addView(badgeBinding.getRoot());
         }
     }
 
