@@ -760,6 +760,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void showCalendarDetailDialog(String date) {
+        SheetCalendarDetailBinding sheetBinding = SheetCalendarDetailBinding.inflate(getLayoutInflater());
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        dialog.setContentView(sheetBinding.getRoot());
+        populateCalendarSheet(sheetBinding, date);
+        dialog.show();
+    }
+
+    private void populateCalendarSheet(SheetCalendarDetailBinding sheetBinding, String date) {
         boolean isPast = date.compareTo(HabitUtils.today()) < 0;
 
         List<HabitItem> completed = new ArrayList<>();
@@ -772,34 +780,30 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             }
         }
 
-        SheetCalendarDetailBinding sheetBinding = SheetCalendarDetailBinding.inflate(getLayoutInflater());
         sheetBinding.tvSheetDate.setText(date + " 打卡详情");
         sheetBinding.tvSheetSummary.setText(
                 "已完成 " + completed.size() + " 项，未完成 " + pending.size() + " 项"
         );
 
         ViewGroup container = sheetBinding.layoutSheetContent;
-        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        container.removeAllViews();
 
         if (completed.isEmpty() && pending.isEmpty()) {
             addSheetSectionTitle(container, "当天还没有任何习惯记录。");
         } else {
-            if (!completed.isEmpty()) {
-                addSheetSectionTitle(container, "已完成习惯");
-                for (HabitItem item : completed) {
-                    addSheetHabitRow(container, item, date, true, isPast, dialog);
-                }
-            }
             if (!pending.isEmpty()) {
                 addSheetSectionTitle(container, "未完成习惯");
                 for (HabitItem item : pending) {
-                    addSheetHabitRow(container, item, date, false, isPast, dialog);
+                    addSheetHabitRow(container, sheetBinding, item, date, false, isPast);
+                }
+            }
+            if (!completed.isEmpty()) {
+                addSheetSectionTitle(container, "已完成习惯");
+                for (HabitItem item : completed) {
+                    addSheetHabitRow(container, sheetBinding, item, date, true, isPast);
                 }
             }
         }
-
-        dialog.setContentView(sheetBinding.getRoot());
-        dialog.show();
     }
 
     private void addSheetSectionTitle(ViewGroup container, String title) {
@@ -812,8 +816,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         container.addView(textView);
     }
 
-    private void addSheetHabitRow(ViewGroup container, HabitItem item, String date,
-                                  boolean completed, boolean isPast, BottomSheetDialog dialog) {
+    private void addSheetHabitRow(ViewGroup container, SheetCalendarDetailBinding sheetBinding,
+                                  HabitItem item, String date, boolean completed, boolean isPast) {
         ItemSheetHabitBinding rowBinding = ItemSheetHabitBinding.inflate(getLayoutInflater(), container, false);
         rowBinding.tvSheetHabitTitle.setText(item.getTitle());
         rowBinding.viewSheetDot.setBackgroundResource(
@@ -828,8 +832,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             rowBinding.btnSheetToggle.setVisibility(View.VISIBLE);
             rowBinding.btnSheetToggle.setText(completed ? "撤销" : "补卡");
             rowBinding.btnSheetToggle.setOnClickListener(v -> {
+                // 原地更新数据并重建弹窗内容，支持连续补卡，不关闭弹窗。
                 toggleDateCheckIn(item.getId(), date, !completed);
-                dialog.dismiss();
+                populateCalendarSheet(sheetBinding, date);
             });
         }
 
@@ -851,7 +856,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             }
         }
         repository.writeHabits(habits);
-        refreshDashboardData();
+        // 同步内存数据 + 刷新背后页面，但不关闭弹窗。
+        allHabits.clear();
+        allHabits.addAll(repository.readHabits());
+        applyHabitFilters();
+        updateSummarySection();
+        updateCalendarPage();
+        updateStatsPage();
+        updateProfilePage();
     }
 
     private void addStatRow(ViewGroup container, String label, String value) {

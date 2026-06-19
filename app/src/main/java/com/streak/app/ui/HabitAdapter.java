@@ -10,13 +10,14 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.streak.app.R;
 import com.streak.app.databinding.ItemHabitBinding;
+import com.streak.app.databinding.ItemHabitSectionBinding;
 import com.streak.app.model.HabitItem;
 import com.streak.app.util.HabitUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class HabitAdapter extends RecyclerView.Adapter<HabitAdapter.HabitViewHolder> {
+public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public interface Callback {
         void onToggleComplete(HabitItem item);
 
@@ -25,42 +26,104 @@ public class HabitAdapter extends RecyclerView.Adapter<HabitAdapter.HabitViewHol
         void onDelete(HabitItem item);
     }
 
+    private static final int TYPE_SECTION = 0;
+    private static final int TYPE_HABIT = 1;
+
+    /** 列表行：分组标题（仅 title 有值）或习惯卡（仅 habit 有值）。 */
+    private static class Row {
+        final String sectionTitle;
+        final HabitItem habit;
+
+        Row(String sectionTitle, HabitItem habit) {
+            this.sectionTitle = sectionTitle;
+            this.habit = habit;
+        }
+    }
+
     private final Callback callback;
-    private final List<HabitItem> items = new ArrayList<>();
+    private final List<Row> rows = new ArrayList<>();
     private String today = HabitUtils.today();
 
     public HabitAdapter(Callback callback) {
         this.callback = callback;
     }
 
+    /**
+     * 重新组装列表：未打卡的习惯排在「未打卡」分组、已打卡的排在「已打卡」分组（沉到底部）。
+     * 任一分组为空则不显示其标题。
+     */
     public void submitList(List<HabitItem> source, String today) {
-        this.items.clear();
-        if (source != null) {
-            this.items.addAll(source);
-        }
         this.today = today;
+        rows.clear();
+        if (source != null) {
+            List<HabitItem> pending = new ArrayList<>();
+            List<HabitItem> done = new ArrayList<>();
+            for (HabitItem item : source) {
+                boolean completedToday = item.getCompletedDates() != null
+                        && item.getCompletedDates().contains(today);
+                if (completedToday) {
+                    done.add(item);
+                } else {
+                    pending.add(item);
+                }
+            }
+            if (!pending.isEmpty()) {
+                rows.add(new Row("未打卡 · " + pending.size(), null));
+                for (HabitItem item : pending) {
+                    rows.add(new Row(null, item));
+                }
+            }
+            if (!done.isEmpty()) {
+                rows.add(new Row("已打卡 · " + done.size(), null));
+                for (HabitItem item : done) {
+                    rows.add(new Row(null, item));
+                }
+            }
+        }
         notifyDataSetChanged();
+    }
+
+    @Override
+    public int getItemViewType(int position) {
+        return rows.get(position).habit == null ? TYPE_SECTION : TYPE_HABIT;
     }
 
     @NonNull
     @Override
-    public HabitViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        ItemHabitBinding binding = ItemHabitBinding.inflate(
-                LayoutInflater.from(parent.getContext()),
-                parent,
-                false
-        );
-        return new HabitViewHolder(binding);
+    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+        if (viewType == TYPE_SECTION) {
+            return new SectionViewHolder(ItemHabitSectionBinding.inflate(inflater, parent, false));
+        }
+        return new HabitViewHolder(ItemHabitBinding.inflate(inflater, parent, false));
     }
 
     @Override
-    public void onBindViewHolder(@NonNull HabitViewHolder holder, int position) {
-        holder.bind(items.get(position), today, callback);
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        Row row = rows.get(position);
+        if (holder instanceof SectionViewHolder) {
+            ((SectionViewHolder) holder).bind(row.sectionTitle);
+        } else {
+            ((HabitViewHolder) holder).bind(row.habit, today, callback);
+        }
     }
 
     @Override
     public int getItemCount() {
-        return items.size();
+        return rows.size();
+    }
+
+    static class SectionViewHolder extends RecyclerView.ViewHolder {
+        private final ItemHabitSectionBinding binding;
+
+        SectionViewHolder(ItemHabitSectionBinding binding) {
+            super(binding.getRoot());
+            this.binding = binding;
+        }
+
+        void bind(String title) {
+            binding.tvHabitSectionTitle.setText(title);
+        }
     }
 
     static class HabitViewHolder extends RecyclerView.ViewHolder {
