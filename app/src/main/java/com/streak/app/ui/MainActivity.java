@@ -45,6 +45,7 @@ import com.streak.app.model.HabitItem;
 import com.streak.app.model.HabitTemplate;
 import com.streak.app.model.UserAccount;
 import com.streak.app.storage.AppRepository;
+import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.HabitUtils;
 
 import java.io.File;
@@ -593,7 +594,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
         if (!TextUtils.isEmpty(avatarUri)) {
             profileBinding.ivProfileAvatar.setVisibility(View.VISIBLE);
-            profileBinding.ivProfileAvatar.setImageURI(Uri.parse(avatarUri));
+            if (AvatarPresets.isPreset(avatarUri)) {
+                profileBinding.ivProfileAvatar.setImageResource(AvatarPresets.drawableFor(avatarUri));
+            } else {
+                profileBinding.ivProfileAvatar.setImageURI(Uri.parse(avatarUri));
+            }
             profileBinding.tvProfileAvatar.setVisibility(View.GONE);
         } else {
             profileBinding.ivProfileAvatar.setVisibility(View.GONE);

@@ -356,8 +356,8 @@ public class AppRepository {
     }
 
     /**
-     * 备份里只保留可分享的资料字段（用户名/昵称/签名/头像），
-     * 剔除 passwordHash、salt、明文 password，避免备份包泄露凭据。
+     * 备份里保留用户名/昵称/签名/头像，以及 PBKDF2 哈希+盐（非明文密码），
+     * 以便删号后导入可完整重建账号并用原密码登回。明文 password 字段始终剔除。
      */
     private List<UserAccount> sanitizeAccountsForExport(List<UserAccount> accounts) {
         List<UserAccount> safe = new ArrayList<>();
@@ -367,6 +367,9 @@ public class AppRepository {
             copy.setDisplayName(account.getDisplayName());
             copy.setMotto(account.getMotto());
             copy.setAvatarUri(account.getAvatarUri());
+            // 凭据：仅导出哈希+盐，便于完整恢复；绝不导出明文。
+            copy.setPasswordHash(account.getPasswordHash());
+            copy.setSalt(account.getSalt());
             safe.add(copy);
         }
         return safe;
@@ -483,7 +486,8 @@ public class AppRepository {
             }
             writeHabits(habits);
 
-            // 还原账号资料中的头像路径（仅更新已存在的同名账号的资料字段）
+            // 还原账号：同名账号更新资料+凭据；已删除（不存在）的账号则重建，
+            // 使删号后导入能用原用户名+原密码登回。
             if (accountsJson != null) {
                 Type type = new TypeToken<List<UserAccount>>() {}.getType();
                 List<UserAccount> imported = gson.fromJson(
@@ -494,13 +498,33 @@ public class AppRepository {
                         if (importedAccount == null || importedAccount.getUsername() == null) {
                             continue;
                         }
+                        UserAccount match = null;
                         for (UserAccount existing : current) {
                             if (importedAccount.getUsername().equals(existing.getUsername())) {
-                                existing.setDisplayName(importedAccount.getDisplayName());
-                                existing.setMotto(importedAccount.getMotto());
-                                existing.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
+                                match = existing;
                                 break;
                             }
+                        }
+                        if (match != null) {
+                            match.setDisplayName(importedAccount.getDisplayName());
+                            match.setMotto(importedAccount.getMotto());
+                            match.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
+                            // 仅当备份带了凭据时才覆盖，避免把现有密码清空
+                            if (importedAccount.getPasswordHash() != null) {
+                                match.setPasswordHash(importedAccount.getPasswordHash());
+                                match.setSalt(importedAccount.getSalt());
+                                match.setPassword(null);
+                            }
+                        } else {
+                            // 重建已删除账号
+                            UserAccount restored = new UserAccount();
+                            restored.setUsername(importedAccount.getUsername());
+                            restored.setDisplayName(importedAccount.getDisplayName());
+                            restored.setMotto(importedAccount.getMotto());
+                            restored.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
+                            restored.setPasswordHash(importedAccount.getPasswordHash());
+                            restored.setSalt(importedAccount.getSalt());
+                            current.add(restored);
                         }
                     }
                     saveAccounts(current);

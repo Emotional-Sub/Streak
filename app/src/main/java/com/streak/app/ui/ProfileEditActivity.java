@@ -16,6 +16,7 @@ import com.streak.app.databinding.ActivityProfileEditBinding;
 import com.streak.app.model.CameraCaptureInfo;
 import com.streak.app.model.UserAccount;
 import com.streak.app.storage.AppRepository;
+import com.streak.app.util.AvatarPresets;
 
 import java.util.Locale;
 
@@ -48,6 +49,7 @@ public class ProfileEditActivity extends AppCompatActivity {
         binding.btnAvatarRemove.setOnClickListener(v -> removeAvatar());
         binding.btnProfileSave.setOnClickListener(v -> save());
 
+        buildAvatarPresets();
         bindAccount();
 
         // 恢复因旋转/进程回收丢失的临时状态（覆盖 bindAccount 设置的头像）
@@ -123,9 +125,45 @@ public class ProfileEditActivity extends AppCompatActivity {
         cameraLauncher.launch(captureInfo.getUri());
     }
 
-    private void updateAvatar(String avatarUri) {
-        // 删除上一张未保存的临时头像
+    private void buildAvatarPresets() {
+        android.view.ViewGroup container = binding.layoutAvatarPresets;
+        container.removeAllViews();
+        int size = (int) (56 * getResources().getDisplayMetrics().density);
+        int margin = (int) (8 * getResources().getDisplayMetrics().density);
+        for (int i = 0; i < AvatarPresets.count(); i++) {
+            final String presetUri = AvatarPresets.uriFor(i);
+            com.google.android.material.imageview.ShapeableImageView iv =
+                    new com.google.android.material.imageview.ShapeableImageView(this);
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(size, size);
+            lp.setMarginEnd(margin);
+            iv.setLayoutParams(lp);
+            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            iv.setShapeAppearanceModel(
+                    iv.getShapeAppearanceModel().toBuilder()
+                            .setAllCornerSizes(size / 2f)
+                            .build());
+            iv.setImageResource(AvatarPresets.drawableAt(i));
+            iv.setOnClickListener(v -> selectPreset(presetUri));
+            container.addView(iv);
+        }
+    }
+
+    private void selectPreset(String presetUri) {
+        // 选预置头像前，清理之前未保存的临时拍照/相册头像文件
         if (!TextUtils.isEmpty(currentAvatarUri)
+                && !AvatarPresets.isPreset(currentAvatarUri)
+                && !TextUtils.equals(currentAvatarUri, originalAvatarUri)) {
+            repository.deletePhoto(currentAvatarUri);
+        }
+        currentAvatarUri = presetUri;
+        renderAvatar();
+    }
+
+    private void updateAvatar(String avatarUri) {
+        // 删除上一张未保存的临时头像（预置头像不是文件，跳过）
+        if (!TextUtils.isEmpty(currentAvatarUri)
+                && !AvatarPresets.isPreset(currentAvatarUri)
                 && !TextUtils.equals(currentAvatarUri, originalAvatarUri)
                 && !TextUtils.equals(currentAvatarUri, avatarUri)) {
             repository.deletePhoto(currentAvatarUri);
@@ -135,7 +173,9 @@ public class ProfileEditActivity extends AppCompatActivity {
     }
 
     private void removeAvatar() {
-        if (!TextUtils.isEmpty(currentAvatarUri) && !TextUtils.equals(currentAvatarUri, originalAvatarUri)) {
+        if (!TextUtils.isEmpty(currentAvatarUri)
+                && !AvatarPresets.isPreset(currentAvatarUri)
+                && !TextUtils.equals(currentAvatarUri, originalAvatarUri)) {
             repository.deletePhoto(currentAvatarUri);
         }
         currentAvatarUri = null;
@@ -148,6 +188,11 @@ public class ProfileEditActivity extends AppCompatActivity {
             binding.ivAvatarPreview.setVisibility(View.GONE);
             binding.tvAvatarLetter.setVisibility(View.VISIBLE);
             binding.btnAvatarRemove.setVisibility(View.GONE);
+        } else if (AvatarPresets.isPreset(currentAvatarUri)) {
+            binding.ivAvatarPreview.setVisibility(View.VISIBLE);
+            binding.ivAvatarPreview.setImageResource(AvatarPresets.drawableFor(currentAvatarUri));
+            binding.tvAvatarLetter.setVisibility(View.GONE);
+            binding.btnAvatarRemove.setVisibility(View.VISIBLE);
         } else {
             binding.ivAvatarPreview.setVisibility(View.VISIBLE);
             binding.ivAvatarPreview.setImageURI(Uri.parse(currentAvatarUri));
@@ -183,9 +228,10 @@ public class ProfileEditActivity extends AppCompatActivity {
             return;
         }
 
-        // 头像换了：删掉旧头像文件
+        // 头像换了：删掉旧头像文件（预置头像不是文件，跳过）
         if (!TextUtils.equals(originalAvatarUri, currentAvatarUri)
-                && !TextUtils.isEmpty(originalAvatarUri)) {
+                && !TextUtils.isEmpty(originalAvatarUri)
+                && !AvatarPresets.isPreset(originalAvatarUri)) {
             repository.deletePhoto(originalAvatarUri);
         }
         username = newUsername;
@@ -197,9 +243,10 @@ public class ProfileEditActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        // 未保存就退出时清理临时头像
+        // 未保存就退出时清理临时头像（预置头像不是文件，跳过）
         if (isFinishing()
                 && !TextUtils.isEmpty(currentAvatarUri)
+                && !AvatarPresets.isPreset(currentAvatarUri)
                 && !TextUtils.equals(currentAvatarUri, originalAvatarUri)) {
             repository.deletePhoto(currentAvatarUri);
         }
