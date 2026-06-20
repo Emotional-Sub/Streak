@@ -62,4 +62,14 @@
         app:cornerRadius="18dp"
         android:text="进入编辑"
         android:textAllCaps="false" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnPreviewShareQr"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        app:cornerRadius="18dp"
+        android:text="分享二维码"
+        android:textAllCaps="false" />
 </LinearLayout>

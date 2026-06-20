@@ -2,6 +2,7 @@ package com.streak.app.ui;
 
 import android.Manifest;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -36,6 +37,7 @@ import com.streak.app.databinding.ItemStatRowBinding;
 import com.streak.app.databinding.ItemTemplateOptionBinding;
 import com.streak.app.databinding.SheetCalendarDetailBinding;
 import com.streak.app.databinding.SheetHabitPreviewBinding;
+import com.streak.app.databinding.SheetHabitQrBinding;
 import com.streak.app.databinding.SheetTemplateChooserBinding;
 import com.streak.app.databinding.ViewDashboardCalendarBinding;
 import com.streak.app.databinding.ViewDashboardHabitsBinding;
@@ -49,7 +51,9 @@ import com.streak.app.model.UserAccount;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.BadgeUtils;
+import com.streak.app.util.HabitQrCodec;
 import com.streak.app.util.HabitUtils;
+import com.streak.app.util.QrGenerator;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -103,6 +107,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private ActivityResultLauncher<Intent> editorLauncher;
     private ActivityResultLauncher<Intent> registerLauncher;
     private ActivityResultLauncher<Intent> profileEditLauncher;
+    private ActivityResultLauncher<com.journeyapps.barcodescanner.ScanOptions> habitScanLauncher;
 
     private final java.util.concurrent.ExecutorService backgroundExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -262,6 +267,41 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     }
                 }
         );
+
+        habitScanLauncher = registerForActivityResult(
+                new com.journeyapps.barcodescanner.ScanContract(),
+                result -> {
+                    if (result.getContents() == null) {
+                        return; // 用户取消
+                    }
+                    HabitQrCodec.Decoded decoded = HabitQrCodec.decode(result.getContents());
+                    if (decoded == null) {
+                        Toast.makeText(this, "这不是有效的习惯二维码", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    openEditorWithScan(decoded);
+                }
+        );
+    }
+
+    private void launchHabitScan() {
+        com.journeyapps.barcodescanner.ScanOptions options =
+                new com.journeyapps.barcodescanner.ScanOptions();
+        options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE);
+        options.setPrompt("对准同学分享的习惯二维码");
+        options.setBeepEnabled(false);
+        options.setOrientationLocked(false);
+        habitScanLauncher.launch(options);
+    }
+
+    private void openEditorWithScan(HabitQrCodec.Decoded decoded) {
+        Intent intent = new Intent(this, HabitEditorActivity.class)
+                .putExtra(HabitEditorActivity.EXTRA_TPL_TITLE, decoded.title)
+                .putExtra(HabitEditorActivity.EXTRA_TPL_CONTENT, decoded.content)
+                .putExtra(HabitEditorActivity.EXTRA_TPL_CATEGORY, decoded.category)
+                .putExtra(HabitEditorActivity.EXTRA_TPL_REMINDER, decoded.reminderTime)
+                .putExtra(HabitEditorActivity.EXTRA_TPL_TAGS, decoded.tags);
+        editorLauncher.launch(intent);
     }
 
     private void setupLoginViews() {
@@ -286,6 +326,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         binding.bottomNavigation.setSelectedItemId(R.id.nav_habits);
 
         binding.fabAddHabit.setOnClickListener(v -> showTemplateChooser());
+        binding.fabScanHabit.setOnClickListener(v -> launchHabitScan());
 
         profileBinding.btnEditProfile.setOnClickListener(v ->
                 profileEditLauncher.launch(new Intent(this, ProfileEditActivity.class)));
@@ -365,6 +406,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         statsBinding.pageStats.setVisibility(item.getItemId() == R.id.nav_stats ? View.VISIBLE : View.GONE);
         profileBinding.pageProfile.setVisibility(item.getItemId() == R.id.nav_profile ? View.VISIBLE : View.GONE);
         binding.fabAddHabit.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
+        binding.fabScanHabit.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
         if (item.getItemId() == R.id.nav_habits) {
             refreshSlogan();
         }
@@ -1024,6 +1066,27 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             dialog.dismiss();
             openEditor(item.getId());
         });
+        sheetBinding.btnPreviewShareQr.setOnClickListener(v -> {
+            dialog.dismiss();
+            showHabitQr(item);
+        });
+        dialog.setContentView(sheetBinding.getRoot());
+        dialog.show();
+    }
+
+    private void showHabitQr(HabitItem item) {
+        SheetHabitQrBinding sheetBinding = SheetHabitQrBinding.inflate(getLayoutInflater());
+        sheetBinding.tvQrHabitTitle.setText(item.getTitle());
+
+        int sizePx = (int) (240 * getResources().getDisplayMetrics().density);
+        Bitmap qr = QrGenerator.generate(HabitQrCodec.encode(item), sizePx);
+        if (qr == null) {
+            Toast.makeText(this, "二维码生成失败", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        sheetBinding.ivQrImage.setImageBitmap(qr);
+
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setContentView(sheetBinding.getRoot());
         dialog.show();
     }

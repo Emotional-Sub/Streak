@@ -31,6 +31,7 @@ public class ProfileEditActivity extends AppCompatActivity {
 
     private ActivityResultLauncher<String> galleryLauncher;
     private ActivityResultLauncher<Uri> cameraLauncher;
+    private ActivityResultLauncher<String> cameraPermissionLauncher;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -96,6 +97,15 @@ public class ProfileEditActivity extends AppCompatActivity {
                 updateAvatar(avatarUri);
             }
         });
+
+        cameraPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(), granted -> {
+                    if (granted) {
+                        launchCamera();
+                    } else {
+                        Toast.makeText(this, "需要相机权限才能拍照", Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
     private void bindAccount() {
@@ -120,6 +130,15 @@ public class ProfileEditActivity extends AppCompatActivity {
     }
 
     private void openCamera() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            launchCamera();
+        } else {
+            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA);
+        }
+    }
+
+    private void launchCamera() {
         CameraCaptureInfo captureInfo = repository.createCameraCapture();
         pendingCameraPath = captureInfo.getFilePath();
         cameraLauncher.launch(captureInfo.getUri());

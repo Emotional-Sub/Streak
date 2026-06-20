@@ -201,6 +201,19 @@
         </LinearLayout>
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fabScanHabit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="24dp"
+            android:layout_marginBottom="156dp"
+            android:contentDescription="扫码添加同款"
+            app:backgroundTint="@color/streak_surface"
+            app:fabSize="mini"
+            app:srcCompat="@drawable/ic_scan"
+            app:tint="@color/streak_primary" />
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fabAddHabit"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
