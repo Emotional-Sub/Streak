@@ -5,11 +5,13 @@
     <color name="streak_primary">#5B5FEF</color>
     <color name="streak_primary_dark">#4038C8</color>
     <color name="streak_primary_soft">#ECEBFF</color>
+    <color name="streak_primary_container">#E7E2FF</color>
     <color name="streak_accent">#18A67A</color>
     <color name="streak_accent_soft">#DFF6EC</color>
     <color name="streak_ink">#151827</color>
     <color name="streak_muted">#667085</color>
     <color name="streak_line">#E7EAF3</color>
+    <color name="streak_danger">#EB5A6A</color>
 
     <!-- 分类饼图配色（学习/运动/生活/工作/阅读） -->
     <color name="cat_study">#5B5FEF</color>

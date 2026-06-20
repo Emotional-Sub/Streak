@@ -139,12 +139,16 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         tvProfileTodayCount = findViewById(R.id.tvProfileTodayCount);
         tvProfileBestStreak = findViewById(R.id.tvProfileBestStreak);
 
+        // 缓存初始 padding，insets 回调里用「基准值 + 系统栏」绝对赋值，
+        // 避免每次 insets 重新分发（切 Tab / 弹键盘 / 获焦）时累加导致顶部空白越撑越大。
+        final int toolbarBaseTop = binding.toolbarDashboard.getPaddingTop();
+        final int bottomNavBaseBottom = binding.bottomNavigation.getPaddingBottom();
         ViewCompat.setOnApplyWindowInsetsListener(binding.getRoot(), (v, insets) -> {
             int top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
             int bottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
             binding.toolbarDashboard.setPadding(
                     binding.toolbarDashboard.getPaddingLeft(),
-                    binding.toolbarDashboard.getPaddingTop() + top,
+                    toolbarBaseTop + top,
                     binding.toolbarDashboard.getPaddingRight(),
                     binding.toolbarDashboard.getPaddingBottom()
             );
@@ -152,7 +156,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     binding.bottomNavigation.getPaddingLeft(),
                     binding.bottomNavigation.getPaddingTop(),
                     binding.bottomNavigation.getPaddingRight(),
-                    bottom
+                    bottomNavBaseBottom + bottom
             );
             return insets;
         });
@@ -290,7 +294,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE);
         options.setPrompt("对准同学分享的习惯二维码");
         options.setBeepEnabled(false);
+        // 方向交给 PortraitCaptureActivity 在 manifest 中的 portrait 声明控制，
+        // 这里必须设为 false，否则 CaptureManager 会按设备当前旋转自行锁定方向，
+        // 与 manifest 冲突，导致预览变横屏并出现拉伸的横线。
         options.setOrientationLocked(false);
+        options.setCaptureActivity(PortraitCaptureActivity.class);
         habitScanLauncher.launch(options);
     }
 
