@@ -16,9 +16,16 @@ public class BootReceiver extends BroadcastReceiver {
         if (intent == null || !Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
             return;
         }
-        try {
-            new AppRepository(context).rescheduleAllReminders();
-        } catch (Exception ignored) {
-        }
+        // 读取全部习惯并重排闹钟，放后台线程，避免在 onReceive 主线程做文件 IO
+        final Context appContext = context.getApplicationContext();
+        final PendingResult pendingResult = goAsync();
+        new Thread(() -> {
+            try {
+                new AppRepository(appContext).rescheduleAllReminders();
+            } catch (Exception ignored) {
+            } finally {
+                pendingResult.finish();
+            }
+        }).start();
     }
 }

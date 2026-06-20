@@ -13,6 +13,7 @@ import com.streak.app.model.HabitBackup;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.UserAccount;
 import com.streak.app.reminder.ReminderScheduler;
+import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.PasswordHasher;
 
 import java.io.File;
@@ -67,7 +68,7 @@ public class AppRepository {
         boolean migrated = false;
         boolean matched = false;
         for (UserAccount account : accounts) {
-            if (!account.getUsername().equals(username)) {
+            if (!username.equals(account.getUsername())) {
                 continue;
             }
             if (account.isLegacyPlaintext()) {
@@ -92,9 +93,10 @@ public class AppRepository {
         if (username.trim().isEmpty() || password.trim().isEmpty()) {
             return "用户名和密码不能为空";
         }
+        username = username.trim();
         List<UserAccount> accounts = loadAccounts();
         for (UserAccount account : accounts) {
-            if (account.getUsername().equals(username)) {
+            if (username.equals(account.getUsername())) {
                 return "该用户名已存在";
             }
         }
@@ -154,7 +156,7 @@ public class AppRepository {
 
     public UserAccount getAccount(String username) {
         for (UserAccount account : loadAccounts()) {
-            if (account.getUsername().equals(username)) {
+            if (username.equals(account.getUsername())) {
                 return account;
             }
         }
@@ -168,7 +170,7 @@ public class AppRepository {
     public void updateProfile(String username, String displayName, String motto, String avatarUri) {
         List<UserAccount> accounts = loadAccounts();
         for (UserAccount account : accounts) {
-            if (account.getUsername().equals(username)) {
+            if (username.equals(account.getUsername())) {
                 account.setDisplayName(displayName);
                 account.setMotto(motto);
                 account.setAvatarUri(avatarUri);
@@ -191,9 +193,9 @@ public class AppRepository {
         List<UserAccount> accounts = loadAccounts();
         UserAccount target = null;
         for (UserAccount account : accounts) {
-            if (account.getUsername().equals(oldUsername)) {
+            if (oldUsername.equals(account.getUsername())) {
                 target = account;
-            } else if (account.getUsername().equals(newUsername)) {
+            } else if (newUsername.equals(account.getUsername())) {
                 return "该用户名已被占用";
             }
         }
@@ -237,7 +239,7 @@ public class AppRepository {
         List<UserAccount> accounts = loadAccounts();
         List<UserAccount> remaining = new ArrayList<>();
         for (UserAccount account : accounts) {
-            if (!account.getUsername().equals(username)) {
+            if (!username.equals(account.getUsername())) {
                 remaining.add(account);
             } else {
                 deletePhoto(account.getAvatarUri());
@@ -368,8 +370,16 @@ public class AppRepository {
             copy.setMotto(account.getMotto());
             copy.setAvatarUri(account.getAvatarUri());
             // 凭据：仅导出哈希+盐，便于完整恢复；绝不导出明文。
-            copy.setPasswordHash(account.getPasswordHash());
-            copy.setSalt(account.getSalt());
+            if (account.isLegacyPlaintext()) {
+                // 旧明文账号尚未迁移：导出前临时哈希一份，避免凭据丢失导致导入后无法登录，
+                // 同时仍不写出明文。
+                String salt = PasswordHasher.generateSalt();
+                copy.setSalt(salt);
+                copy.setPasswordHash(PasswordHasher.hash(account.getPassword(), salt));
+            } else {
+                copy.setPasswordHash(account.getPasswordHash());
+                copy.setSalt(account.getSalt());
+            }
             safe.add(copy);
         }
         return safe;
@@ -508,7 +518,11 @@ public class AppRepository {
                         if (match != null) {
                             match.setDisplayName(importedAccount.getDisplayName());
                             match.setMotto(importedAccount.getMotto());
-                            match.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
+                            // 备份缺图时 remap 返回 null，此时保留现有头像而非清空
+                            String remappedAvatar = remapImageUri(importedAccount.getAvatarUri());
+                            if (remappedAvatar != null) {
+                                match.setAvatarUri(remappedAvatar);
+                            }
                             // 仅当备份带了凭据时才覆盖，避免把现有密码清空
                             if (importedAccount.getPasswordHash() != null) {
                                 match.setPasswordHash(importedAccount.getPasswordHash());
@@ -560,6 +574,10 @@ public class AppRepository {
      * 把备份里的图片路径重映射为本机 imageDir 下的同名文件（若该文件确实已解压存在）。
      */
     private String remapImageUri(String original) {
+        // 预置头像是逻辑标识（preset:N），不是文件，原样保留
+        if (AvatarPresets.isPreset(original)) {
+            return original;
+        }
         File source = resolveImageFile(original);
         if (source == null) {
             return null;

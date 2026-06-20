@@ -317,20 +317,26 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             return;
         }
 
-        if (repository.validateLogin(username, password)) {
-            repository.saveLoginState(
-                    username,
-                    password,
-                    binding.cbRememberPassword.isChecked(),
-                    username
-            );
-            currentUser = username;
-            showDashboardPage();
-            refreshDashboardData();
-            Toast.makeText(this, "登录成功", Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(this, "用户名或密码错误", Toast.LENGTH_SHORT).show();
-        }
+        // PBKDF2 校验较重，放后台线程，避免阻塞 UI；校验期间禁用按钮防重复点击
+        binding.btnLogin.setEnabled(false);
+        boolean remember = binding.cbRememberPassword.isChecked();
+        backgroundExecutor.execute(() -> {
+            boolean ok = repository.validateLogin(username, password);
+            if (ok) {
+                repository.saveLoginState(username, password, remember, username);
+            }
+            mainHandler.post(() -> {
+                binding.btnLogin.setEnabled(true);
+                if (ok) {
+                    currentUser = username;
+                    showDashboardPage();
+                    refreshDashboardData();
+                    Toast.makeText(this, "登录成功", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "用户名或密码错误", Toast.LENGTH_SHORT).show();
+                }
+            });
+        });
     }
 
 
@@ -727,9 +733,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 .setMessage("确定要删除账号吗？所有习惯、打卡记录和照片将被永久清除，无法恢复。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("删除", (dialog, which) -> {
-                    repository.deleteCurrentAccountAndData();
-                    Toast.makeText(this, "账号已删除", Toast.LENGTH_SHORT).show();
-                    showLoginPage();
+                    // 删号涉及读写 JSON、取消闹钟、删图片，放后台线程避免阻塞 UI
+                    backgroundExecutor.execute(() -> {
+                        repository.deleteCurrentAccountAndData();
+                        mainHandler.post(() -> {
+                            Toast.makeText(this, "账号已删除", Toast.LENGTH_SHORT).show();
+                            showLoginPage();
+                        });
+                    });
                 })
                 .show();
     }

@@ -268,6 +268,8 @@ public class HabitEditorActivity extends AppCompatActivity {
         }
 
         HabitItem item = originalHabit == null ? new HabitItem() : originalHabit;
+        // 先存旧图路径，因为下面 setImageUri 会直接改写 originalHabit 自身
+        String previousImageUri = originalHabit == null ? null : originalHabit.getImageUri();
         if (originalHabit == null) {
             item.setId(System.currentTimeMillis());
             item.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
@@ -281,8 +283,8 @@ public class HabitEditorActivity extends AppCompatActivity {
         item.setReminderEnabled(binding.switchReminder.isChecked());
         item.setImageUri(currentImageUri);
 
-        if (originalHabit != null && !TextUtils.equals(originalHabit.getImageUri(), currentImageUri)) {
-            repository.deletePhoto(originalHabit.getImageUri());
+        if (originalHabit != null && !TextUtils.equals(previousImageUri, currentImageUri)) {
+            repository.deletePhoto(previousImageUri);
         }
 
         boolean replaced = false;

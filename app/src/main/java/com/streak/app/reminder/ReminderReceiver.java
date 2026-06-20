@@ -62,19 +62,26 @@ public class ReminderReceiver extends BroadcastReceiver {
     /**
      * 单次闹钟触发后，按数据库里的最新设置重排下一次（次日同一时间），
      * 实现“每日重复”。若习惯已被删除或关闭提醒，则不再重排。
+     * 涉及读取 habits.json，放后台线程执行，避免阻塞广播主线程（onReceive 有 ~10s 限制）。
      */
     private void rescheduleNextDay(Context context, long habitId) {
         if (habitId <= 0) {
             return;
         }
-        try {
-            AppRepository repository = new AppRepository(context);
-            HabitItem habit = repository.findHabitById(habitId);
-            if (habit != null && habit.isReminderEnabled()) {
-                repository.syncReminder(habit);
+        final Context appContext = context.getApplicationContext();
+        final PendingResult pendingResult = goAsync();
+        new Thread(() -> {
+            try {
+                AppRepository repository = new AppRepository(appContext);
+                HabitItem habit = repository.findHabitById(habitId);
+                if (habit != null && habit.isReminderEnabled()) {
+                    repository.syncReminder(habit);
+                }
+            } catch (Exception ignored) {
+            } finally {
+                pendingResult.finish();
             }
-        } catch (Exception ignored) {
-        }
+        }).start();
     }
 
     private void createChannel(Context context) {
