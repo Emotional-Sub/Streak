@@ -439,7 +439,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         currentUser = repository.getCurrentUser();
         allHabits.clear();
         allHabits.addAll(repository.readHabits());
-        binding.toolbarDashboard.setSubtitle("欢迎你，" + currentUser);
+        binding.toolbarDashboard.setSubtitle("欢迎你，" + resolveDisplayName());
         applyHabitFilters();
         updateSummarySection();
         updateCalendarPage();
@@ -634,15 +634,24 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
     }
 
+    /**
+     * 优先返回昵称（displayName），为空时退回用户名。
+     * 顶栏问候语与「我的」页面均用此口径。
+     */
+    private String resolveDisplayName() {
+        UserAccount account = repository.getCurrentAccount();
+        if (account != null && !TextUtils.isEmpty(account.getDisplayName())) {
+            return account.getDisplayName();
+        }
+        return currentUser;
+    }
+
     private void updateProfilePage() {
         UserAccount account = repository.getCurrentAccount();
-        String displayName = currentUser;
+        String displayName = resolveDisplayName();
         String motto = "坚持不是一次爆发，而是很多次按时完成。";
         String avatarUri = null;
         if (account != null) {
-            if (!TextUtils.isEmpty(account.getDisplayName())) {
-                displayName = account.getDisplayName();
-            }
             if (!TextUtils.isEmpty(account.getMotto())) {
                 motto = account.getMotto();
             }

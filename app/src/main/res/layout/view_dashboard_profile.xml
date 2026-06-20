@@ -52,31 +52,16 @@
                         android:textSize="24sp"
                         android:textStyle="bold" />
 
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/tvProfileName"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="14dp"
                         android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/tvProfileName"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="student"
-                            android:textColor="#111827"
-                            android:textSize="22sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/tvProfileMotto"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:text="坚持不是一次爆发，而是很多次按时完成。"
-                            android:textColor="#4B5563"
-                            android:textSize="14sp" />
-                    </LinearLayout>
+                        android:text="student"
+                        android:textColor="#111827"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnEditProfile"
@@ -86,6 +71,15 @@
                         android:text="编辑"
                         android:textAllCaps="false" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvProfileMotto"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="坚持不是一次爆发，而是很多次按时完成。"
+                    android:textColor="#4B5563"
+                    android:textSize="14sp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
