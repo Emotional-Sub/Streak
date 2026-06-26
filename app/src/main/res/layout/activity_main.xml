@@ -175,7 +175,7 @@
                 app:navigationIconTint="@color/streak_ink"
                 app:subtitleTextColor="@color/streak_muted"
                 app:titleTextColor="@color/streak_ink"
-                app:title="每日打卡" />
+                app:title="习惯" />
 
             <FrameLayout
                 android:layout_width="match_parent"

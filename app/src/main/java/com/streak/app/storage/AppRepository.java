@@ -304,9 +304,10 @@ public class AppRepository {
             }
             return habits;
         } catch (Exception e) {
-            List<HabitItem> seed = seedHabits();
-            writeHabits(seed);
-            return seed;
+            // 文件存在却解析失败：可能是写入中断/损坏。绝不用种子数据覆盖，
+            // 而是把损坏文件改名备份后返回空列表，避免用户打卡记录被永久清除。
+            backupCorruptFile(habitsFile);
+            return new ArrayList<>();
         }
     }
 
@@ -341,7 +342,9 @@ public class AppRepository {
             );
             writeZipEntry(zos, "habits.json", gson.toJson(backup).getBytes(StandardCharsets.UTF_8));
 
-            // 2) 账号资料 JSON（仅资料字段，不含密码哈希/盐/明文，避免随备份泄露）
+            // 2) 账号资料 JSON：含用户名/昵称/签名/头像 + PBKDF2 哈希与盐（绝不含明文密码）。
+            //    导出哈希+盐是为了删号后导入能用原密码登回；注意备份文件可被外传，
+            //    其中的哈希+盐可用于离线暴力破解，请提醒用户妥善保管备份。
             writeZipEntry(zos, "accounts.json",
                     gson.toJson(sanitizeAccountsForExport(accounts)).getBytes(StandardCharsets.UTF_8));
 
@@ -599,7 +602,11 @@ public class AppRepository {
     public void rescheduleAllReminders() {
         for (HabitItem habit : readHabits()) {
             if (habit.isReminderEnabled()) {
-                reminderScheduler.schedule(habit);
+                // 单个习惯调度失败不应中断其余（避免一条脏数据让开机后全部提醒丢失）
+                try {
+                    reminderScheduler.schedule(habit);
+                } catch (Exception ignored) {
+                }
             }
         }
     }
@@ -666,6 +673,72 @@ public class AppRepository {
         }
     }
 
+    /**
+     * 把二维码 Bitmap 保存到系统相册的 Pictures/Streak 目录。
+     * API 29+ 走 MediaStore（免存储权限）；API 26-28 需调用方先拿到 WRITE_EXTERNAL_STORAGE。
+     * 返回保存后的图片 Uri；失败返回 null。注意：应在后台线程调用，避免阻塞主线程。
+     */
+    public Uri saveQrToGallery(android.graphics.Bitmap bitmap, String displayName) {
+        if (bitmap == null) {
+            return null;
+        }
+        String fileName = sanitizeFileName(displayName) + "_" + System.currentTimeMillis() + ".png";
+        android.content.ContentResolver resolver = context.getContentResolver();
+        android.content.ContentValues values = new android.content.ContentValues();
+        values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName);
+        values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png");
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
+                    android.os.Environment.DIRECTORY_PICTURES + "/Streak");
+            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 1);
+            Uri uri = resolver.insert(
+                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                return null;
+            }
+            try (java.io.OutputStream out = resolver.openOutputStream(uri)) {
+                if (out == null) {
+                    resolver.delete(uri, null, null);
+                    return null;
+                }
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            } catch (Exception e) {
+                resolver.delete(uri, null, null);
+                return null;
+            }
+            values.clear();
+            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
+            resolver.update(uri, values, null, null);
+            return uri;
+        } else {
+            // API 26-28：写入公共 Pictures/Streak 目录，再插入 MediaStore 索引让相册可见
+            File picturesDir = new File(
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_PICTURES), "Streak");
+            //noinspection ResultOfMethodCallIgnored
+            picturesDir.mkdirs();
+            File target = new File(picturesDir, fileName);
+            try (FileOutputStream out = new FileOutputStream(target)) {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            } catch (Exception e) {
+                return null;
+            }
+            values.put(android.provider.MediaStore.Images.Media.DATA, target.getAbsolutePath());
+            return resolver.insert(
+                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        }
+    }
+
+    private String sanitizeFileName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "streak_qr";
+        }
+        // 去掉文件名里的非法字符，避免拼路径出错
+        String cleaned = name.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
+        return cleaned.isEmpty() ? "streak_qr" : cleaned;
+    }
+
     private List<UserAccount> loadAccounts() {
         if (!accountsFile.exists()) {
             List<UserAccount> defaults = defaultAccounts();
@@ -677,9 +750,26 @@ public class AppRepository {
             List<UserAccount> accounts = gson.fromJson(reader, type);
             return accounts == null ? new ArrayList<>() : accounts;
         } catch (Exception e) {
-            List<UserAccount> defaults = defaultAccounts();
-            saveAccounts(defaults);
-            return defaults;
+            // 文件存在却解析失败：先把损坏文件改名备份，绝不用默认账号覆盖，
+            // 否则用户全部账号会被永久清除并替换为 student/123456。
+            backupCorruptFile(accountsFile);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 把解析失败的损坏文件改名为 <名>.corrupt-<时间戳>，保留现场以便排查/手动恢复，
+     * 同时让后续逻辑认为「文件不存在」从而走正常的默认初始化路径。
+     */
+    private void backupCorruptFile(File file) {
+        try {
+            if (file.exists()) {
+                File backup = new File(file.getParentFile(),
+                        file.getName() + ".corrupt-" + System.currentTimeMillis());
+                //noinspection ResultOfMethodCallIgnored
+                file.renameTo(backup);
+            }
+        } catch (Exception ignored) {
         }
     }
 

@@ -13,12 +13,12 @@
         android:background="@android:color/transparent"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:paddingTop="16dp"
         app:elevation="0dp">
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             app:cardBackgroundColor="@android:color/transparent"
             app:cardCornerRadius="24dp"
             app:cardElevation="2dp"

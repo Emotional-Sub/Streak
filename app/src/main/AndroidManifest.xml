@@ -4,10 +4,14 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 扫码需要相机；拍照(ACTION_IMAGE_CAPTURE)在清单声明 CAMERA 后也需运行时授权 -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 保存二维码到相册：仅 Android 9(API 28) 及以下需要写外部存储；
+         API 29+ 走 MediaStore 分区存储，无需此权限 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />

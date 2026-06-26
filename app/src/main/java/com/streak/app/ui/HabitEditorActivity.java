@@ -71,7 +71,7 @@ public class HabitEditorActivity extends AppCompatActivity {
                     removeImage();
                 } else {
                     currentImageUri = savedImage;
-                    binding.ivEditorPreview.setImageURI(Uri.parse(savedImage));
+                    com.streak.app.util.ImageLoader.load(binding.ivEditorPreview, savedImage, 720);
                     binding.ivEditorPreview.setVisibility(android.view.View.VISIBLE);
                     binding.btnRemovePhoto.setVisibility(android.view.View.VISIBLE);
                 }
@@ -164,7 +164,7 @@ public class HabitEditorActivity extends AppCompatActivity {
         binding.switchReminder.setChecked(originalHabit.isReminderEnabled());
         if (!TextUtils.isEmpty(originalHabit.getImageUri())) {
             currentImageUri = originalHabit.getImageUri();
-            binding.ivEditorPreview.setImageURI(Uri.parse(currentImageUri));
+            com.streak.app.util.ImageLoader.load(binding.ivEditorPreview, currentImageUri, 720);
             binding.ivEditorPreview.setVisibility(android.view.View.VISIBLE);
             binding.btnRemovePhoto.setVisibility(android.view.View.VISIBLE);
         }
@@ -238,7 +238,7 @@ public class HabitEditorActivity extends AppCompatActivity {
             repository.deletePhoto(currentImageUri);
         }
         currentImageUri = imageUri;
-        binding.ivEditorPreview.setImageURI(Uri.parse(imageUri));
+        com.streak.app.util.ImageLoader.load(binding.ivEditorPreview, imageUri, 720);
         binding.ivEditorPreview.setVisibility(android.view.View.VISIBLE);
         binding.btnRemovePhoto.setVisibility(android.view.View.VISIBLE);
     }

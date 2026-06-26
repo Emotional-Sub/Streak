@@ -108,6 +108,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private ActivityResultLauncher<Intent> registerLauncher;
     private ActivityResultLauncher<Intent> profileEditLauncher;
     private ActivityResultLauncher<com.journeyapps.barcodescanner.ScanOptions> habitScanLauncher;
+    private ActivityResultLauncher<String> storagePermissionLauncher;
+    // 等待存储权限授权后再保存的二维码（仅 API 26-28 用得到）
+    private Bitmap pendingSaveQrBitmap;
+    private String pendingSaveQrTitle;
 
     private final java.util.concurrent.ExecutorService backgroundExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -278,17 +282,44 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     if (result.getContents() == null) {
                         return; // 用户取消
                     }
-                    HabitQrCodec.Decoded decoded = HabitQrCodec.decode(result.getContents());
-                    if (decoded == null) {
-                        Toast.makeText(this, "这不是有效的习惯二维码", Toast.LENGTH_SHORT).show();
+                    handleScannedContent(result.getContents());
+                }
+        );
+
+        // 仅 API 26-28 保存二维码到相册前需要的存储权限
+        storagePermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> {
+                    Bitmap qr = pendingSaveQrBitmap;
+                    String title = pendingSaveQrTitle;
+                    pendingSaveQrBitmap = null;
+                    pendingSaveQrTitle = null;
+                    if (!granted) {
+                        Toast.makeText(this, "需要存储权限才能保存到相册", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    openEditorWithScan(decoded);
+                    if (qr != null) {
+                        saveQrToGallery(qr, title);
+                    }
                 }
         );
     }
 
-    private void launchHabitScan() {
+    /** 统一处理扫到/解出的原始内容：相机扫码与扫码界面内的相册识别共用。 */
+    private void handleScannedContent(String raw) {
+        if (raw == null) {
+            Toast.makeText(this, "未识别到二维码", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        HabitQrCodec.Decoded decoded = HabitQrCodec.decode(raw);
+        if (decoded == null) {
+            Toast.makeText(this, "这不是有效的习惯二维码", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        openEditorWithScan(decoded);
+    }
+
+    private void launchCameraScan() {
         com.journeyapps.barcodescanner.ScanOptions options =
                 new com.journeyapps.barcodescanner.ScanOptions();
         options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE);
@@ -320,7 +351,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void setupDashboardViews() {
-        binding.toolbarDashboard.setTitle("每日打卡");
+        binding.toolbarDashboard.setTitle("习惯");
         binding.toolbarDashboard.inflateMenu(R.menu.menu_dashboard);
         binding.toolbarDashboard.setOnMenuItemClickListener(this::onToolbarMenuClicked);
 
@@ -334,7 +365,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         binding.bottomNavigation.setSelectedItemId(R.id.nav_habits);
 
         binding.fabAddHabit.setOnClickListener(v -> showTemplateChooser());
-        binding.fabScanHabit.setOnClickListener(v -> launchHabitScan());
+        binding.fabScanHabit.setOnClickListener(v -> launchCameraScan());
 
         profileBinding.btnEditProfile.setOnClickListener(v ->
                 profileEditLauncher.launch(new Intent(this, ProfileEditActivity.class)));
@@ -409,6 +440,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private boolean onBottomNavigationSelected(@NonNull MenuItem item) {
+        binding.toolbarDashboard.setTitle(item.getTitle());
         habitsBinding.pageHabits.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
         calendarBinding.pageCalendar.setVisibility(item.getItemId() == R.id.nav_calendar ? View.VISIBLE : View.GONE);
         statsBinding.pageStats.setVisibility(item.getItemId() == R.id.nav_stats ? View.VISIBLE : View.GONE);
@@ -425,6 +457,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void showLoginPage() {
+        // 回到登录界面时按当前持久化状态重置输入框：
+        // 删除账号会清空保存的用户名/密码，这里重读才能避免旧值残留在文本框。
+        binding.etLoginUsername.setText(repository.getSavedUsername());
+        binding.etLoginPassword.setText(repository.getSavedPassword());
+        binding.cbRememberPassword.setChecked(repository.isRememberPassword());
         binding.loginContainer.setVisibility(View.VISIBLE);
         binding.dashboardRoot.setVisibility(View.GONE);
     }
@@ -437,14 +474,22 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private void refreshDashboardData() {
         today = HabitUtils.today();
         currentUser = repository.getCurrentUser();
-        allHabits.clear();
-        allHabits.addAll(repository.readHabits());
-        binding.toolbarDashboard.setSubtitle("欢迎你，" + resolveDisplayName());
-        applyHabitFilters();
-        updateSummarySection();
-        updateCalendarPage();
-        updateStatsPage();
-        updateProfilePage();
+        // 读习惯/账号涉及读盘+JSON 解析，放后台线程避免阻塞 UI（真机上会掉帧）。
+        // 读完回主线程再更新视图。
+        backgroundExecutor.execute(() -> {
+            final List<HabitItem> habits = repository.readHabits();
+            final String displayName = resolveDisplayName();
+            mainHandler.post(() -> {
+                allHabits.clear();
+                allHabits.addAll(habits);
+                binding.toolbarDashboard.setSubtitle("欢迎你，" + displayName);
+                applyHabitFilters();
+                updateSummarySection();
+                updateCalendarPage();
+                updateStatsPage();
+                updateProfilePage();
+            });
+        });
     }
 
     private void applyHabitFilters() {
@@ -569,7 +614,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             int count = 0;
             for (HabitItem item : allHabits) {
                 if (category.equals(item.getCategory())) {
-                    count += item.getCompletedDates().size();
+                    count += HabitUtils.uniqueCheckIns(item);
                 }
             }
             if (count > 0) {
@@ -667,7 +712,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             if (AvatarPresets.isPreset(avatarUri)) {
                 profileBinding.ivProfileAvatar.setImageResource(AvatarPresets.drawableFor(avatarUri));
             } else {
-                profileBinding.ivProfileAvatar.setImageURI(Uri.parse(avatarUri));
+                com.streak.app.util.ImageLoader.load(profileBinding.ivProfileAvatar, avatarUri, 240);
             }
             profileBinding.tvProfileAvatar.setVisibility(View.GONE);
         } else {
@@ -1036,21 +1081,24 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     @Override
     public void onToggleComplete(HabitItem item) {
-        List<HabitItem> habits = repository.readHabits();
-        for (HabitItem target : habits) {
-            if (target.getId() == item.getId()) {
-                List<String> completedDates = new ArrayList<>(target.getCompletedDates());
-                if (completedDates.contains(today)) {
-                    completedDates.remove(today);
-                } else {
-                    completedDates.add(today);
+        // 读写习惯文件放后台线程，完成后回主线程刷新（打卡是高频操作，避免每次卡主线程）
+        backgroundExecutor.execute(() -> {
+            List<HabitItem> habits = repository.readHabits();
+            for (HabitItem target : habits) {
+                if (target.getId() == item.getId()) {
+                    List<String> completedDates = new ArrayList<>(target.getCompletedDates());
+                    if (completedDates.contains(today)) {
+                        completedDates.remove(today);
+                    } else {
+                        completedDates.add(today);
+                    }
+                    target.setCompletedDates(completedDates);
+                    break;
                 }
-                target.setCompletedDates(completedDates);
-                break;
             }
-        }
-        repository.writeHabits(habits);
-        refreshDashboardData();
+            repository.writeHabits(habits);
+            mainHandler.post(this::refreshDashboardData);
+        });
     }
 
     @Override
@@ -1103,9 +1151,43 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
         sheetBinding.ivQrImage.setImageBitmap(qr);
 
+        sheetBinding.btnSaveQr.setOnClickListener(v -> requestSaveQr(qr, item.getTitle()));
+
         BottomSheetDialog dialog = new BottomSheetDialog(this);
         dialog.setContentView(sheetBinding.getRoot());
         dialog.show();
+    }
+
+    /**
+     * 保存二维码到相册。API 29+ 直接走 MediaStore 免权限；API 26-28 需先申请存储权限，
+     * 拿到后再保存（结果回到 storagePermissionLauncher 的回调）。
+     */
+    private void requestSaveQr(Bitmap qr, String title) {
+        if (qr == null) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            pendingSaveQrBitmap = qr;
+            pendingSaveQrTitle = title;
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            return;
+        }
+        saveQrToGallery(qr, title);
+    }
+
+    /** 在后台线程把二维码写入相册，避免阻塞主线程。 */
+    private void saveQrToGallery(Bitmap qr, String title) {
+        Toast.makeText(this, "正在保存到相册…", Toast.LENGTH_SHORT).show();
+        backgroundExecutor.execute(() -> {
+            Uri saved = repository.saveQrToGallery(qr, title);
+            mainHandler.post(() -> Toast.makeText(
+                    this,
+                    saved != null ? "已保存到相册的 Streak 相册" : "保存失败，请重试",
+                    Toast.LENGTH_SHORT
+            ).show());
+        });
     }
 
     @Override

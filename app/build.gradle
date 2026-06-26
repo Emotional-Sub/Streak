@@ -19,10 +19,20 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            storeFile file("${rootDir}/release/streak-release.jks")
+            storePassword 'streak123'
+            keyAlias 'streak'
+            keyPassword 'streak123'
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
     }
 

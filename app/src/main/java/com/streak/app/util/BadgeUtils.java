@@ -30,7 +30,8 @@ public final class BadgeUtils {
         int todayCompleted = 0;
         String today = HabitUtils.today();
         for (HabitItem item : habits) {
-            bestStreak = Math.max(bestStreak, HabitUtils.currentStreak(item.getCompletedDates()));
+            // 勋章看历史最长连续，断卡后已达成的成就不再熄灭
+            bestStreak = Math.max(bestStreak, HabitUtils.longestStreak(item.getCompletedDates()));
             if (item.getImageUri() != null && !item.getImageUri().trim().isEmpty()) {
                 anyWithPhoto = true;
             }

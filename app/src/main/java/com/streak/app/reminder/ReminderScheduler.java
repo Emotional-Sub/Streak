@@ -28,16 +28,25 @@ public class ReminderScheduler {
 
         int hour = 20;
         int minute = 0;
-        String[] parts = habit.getReminderTime().split(":");
+        String reminderTime = habit.getReminderTime();
+        String[] parts = reminderTime == null ? new String[0] : reminderTime.split(":");
         try {
             if (parts.length > 0) {
-                hour = Integer.parseInt(parts[0]);
+                hour = Integer.parseInt(parts[0].trim());
             }
             if (parts.length > 1) {
-                minute = Integer.parseInt(parts[1]);
+                minute = Integer.parseInt(parts[1].trim());
             }
         } catch (NumberFormatException ignored) {
             hour = 20;
+            minute = 0;
+        }
+        // 钳制到合法范围，避免导入的脏数据（如 "25:70"）让 withHour/withMinute 抛
+        // DateTimeException，进而中断整个调度（开机重排时尤其会连累后续习惯）。
+        if (hour < 0 || hour > 23) {
+            hour = 20;
+        }
+        if (minute < 0 || minute > 59) {
             minute = 0;
         }
 

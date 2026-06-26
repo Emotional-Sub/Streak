@@ -1,5 +1,6 @@
 package com.streak.app.ui;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.widget.Toast;
@@ -51,8 +52,8 @@ public class RegisterActivity extends AppCompatActivity {
         }
 
         Toast.makeText(this, "注册成功，请登录", Toast.LENGTH_SHORT).show();
-        getIntent().putExtra(RESULT_USERNAME, username);
-        setResult(RESULT_OK, getIntent().putExtra(RESULT_USERNAME, username));
+        Intent result = new Intent().putExtra(RESULT_USERNAME, username);
+        setResult(RESULT_OK, result);
         finish();
     }
 

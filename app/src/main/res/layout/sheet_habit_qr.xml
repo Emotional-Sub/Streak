@@ -62,4 +62,14 @@
         android:text="让同学在“新增习惯 → 扫码添加同款”里扫描即可加同款习惯（不含照片）。"
         android:textColor="@color/streak_muted"
         android:textSize="13sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSaveQr"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        app:cornerRadius="18dp"
+        android:text="保存到相册"
+        android:textAllCaps="false" />
 </LinearLayout>

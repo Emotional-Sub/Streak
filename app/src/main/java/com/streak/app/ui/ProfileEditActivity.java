@@ -214,7 +214,7 @@ public class ProfileEditActivity extends AppCompatActivity {
             binding.btnAvatarRemove.setVisibility(View.VISIBLE);
         } else {
             binding.ivAvatarPreview.setVisibility(View.VISIBLE);
-            binding.ivAvatarPreview.setImageURI(Uri.parse(currentAvatarUri));
+            com.streak.app.util.ImageLoader.load(binding.ivAvatarPreview, currentAvatarUri, 360);
             binding.tvAvatarLetter.setVisibility(View.GONE);
             binding.btnAvatarRemove.setVisibility(View.VISIBLE);
         }

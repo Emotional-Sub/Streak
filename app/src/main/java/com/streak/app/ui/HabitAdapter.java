@@ -136,7 +136,7 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
 
         void bind(HabitItem item, String today, Callback callback) {
             boolean completedToday = item.getCompletedDates() != null && item.getCompletedDates().contains(today);
-            int totalCheckIns = item.getCompletedDates() == null ? 0 : item.getCompletedDates().size();
+            int totalCheckIns = HabitUtils.uniqueCheckIns(item);
             int streak = HabitUtils.currentStreak(item.getCompletedDates());
 
             binding.tvHabitTitle.setText(item.getTitle());
@@ -160,7 +160,7 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             }
 
             if (item.getImageUri() != null && !item.getImageUri().trim().isEmpty()) {
-                binding.ivHabitImage.setImageURI(Uri.parse(item.getImageUri()));
+                com.streak.app.util.ImageLoader.load(binding.ivHabitImage, item.getImageUri(), 600);
                 binding.ivHabitImage.setVisibility(View.VISIBLE);
             } else {
                 binding.ivHabitImage.setVisibility(View.GONE);

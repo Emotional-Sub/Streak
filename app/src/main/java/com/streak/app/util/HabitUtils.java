@@ -58,6 +58,42 @@ public final class HabitUtils {
         return streak;
     }
 
+    /**
+     * 历史最长连续打卡天数：扫描全部打卡日期，找出最长的一段连续区间，
+     * 与「今天」无关。用于成就勋章——里程碑一旦达成就不应因后来断卡而熄灭。
+     * 实时展示的「连续 N 天」仍用 {@link #currentStreak}。
+     */
+    public static int longestStreak(List<String> completedDates) {
+        if (completedDates == null || completedDates.isEmpty()) {
+            return 0;
+        }
+        Set<LocalDate> dateSet = new HashSet<>();
+        for (String date : completedDates) {
+            try {
+                dateSet.add(LocalDate.parse(date));
+            } catch (Exception ignored) {
+            }
+        }
+        if (dateSet.isEmpty()) {
+            return 0;
+        }
+        int best = 0;
+        for (LocalDate date : dateSet) {
+            // 只从「连续段的起点」开始数，避免重复扫描：前一天不在集合里才是起点
+            if (dateSet.contains(date.minusDays(1))) {
+                continue;
+            }
+            int length = 0;
+            LocalDate cursor = date;
+            while (dateSet.contains(cursor)) {
+                length++;
+                cursor = cursor.plusDays(1);
+            }
+            best = Math.max(best, length);
+        }
+        return best;
+    }
+
     public static List<HabitItem> filterHabits(List<HabitItem> source, String query, String category) {
         List<HabitItem> result = new ArrayList<>();
         String safeQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
@@ -78,9 +114,20 @@ public final class HabitUtils {
     public static int totalCheckIns(List<HabitItem> habits) {
         int total = 0;
         for (HabitItem item : habits) {
-            total += new HashSet<>(item.getCompletedDates()).size();
+            total += uniqueCheckIns(item);
         }
         return total;
+    }
+
+    /**
+     * 单个习惯的有效打卡次数：按日期去重，避免导入备份/补卡引入的重复日期
+     * 让计数虚高。全 App 的「打卡次数」口径统一走这里。
+     */
+    public static int uniqueCheckIns(HabitItem item) {
+        if (item == null || item.getCompletedDates() == null) {
+            return 0;
+        }
+        return new HashSet<>(item.getCompletedDates()).size();
     }
 
     public static int completionRate(List<HabitItem> habits) {
@@ -101,7 +148,11 @@ public final class HabitUtils {
         LocalDate weekStart = LocalDate.now().minusDays(6);
         int total = 0;
         for (HabitItem item : habits) {
-            for (String date : item.getCompletedDates()) {
+            if (item.getCompletedDates() == null) {
+                continue;
+            }
+            // 按日期去重，与 uniqueCheckIns 口径一致：同一天的重复记录只算一次
+            for (String date : new HashSet<>(item.getCompletedDates())) {
                 try {
                     if (!LocalDate.parse(date).isBefore(weekStart)) {
                         total++;
@@ -117,7 +168,11 @@ public final class HabitUtils {
         String monthPrefix = LocalDate.now().format(MONTH_FORMAT);
         int total = 0;
         for (HabitItem item : habits) {
-            for (String date : item.getCompletedDates()) {
+            if (item.getCompletedDates() == null) {
+                continue;
+            }
+            // 按日期去重，与 uniqueCheckIns 口径一致
+            for (String date : new HashSet<>(item.getCompletedDates())) {
                 if (date != null && date.startsWith(monthPrefix)) {
                     total++;
                 }
@@ -127,6 +182,7 @@ public final class HabitUtils {
     }
 
     public static List<CalendarCell> buildMonthCells(String today, Set<String> completedDates) {
+        Set<String> done = completedDates == null ? java.util.Collections.emptySet() : completedDates;
         LocalDate currentDate;
         try {
             currentDate = LocalDate.parse(today);
@@ -146,7 +202,7 @@ public final class HabitUtils {
         for (int day = 1; day <= monthLength; day++) {
             LocalDate date = yearMonth.atDay(day);
             String dateText = date.toString();
-            cells.add(new CalendarCell(false, day, dateText, date.equals(currentDate), completedDates.contains(dateText)));
+            cells.add(new CalendarCell(false, day, dateText, date.equals(currentDate), done.contains(dateText)));
         }
         int endPadding = (7 - cells.size() % 7) % 7;
         for (int i = 0; i < endPadding; i++) {
