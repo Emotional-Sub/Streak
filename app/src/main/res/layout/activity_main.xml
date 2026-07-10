@@ -109,7 +109,7 @@
                             android:id="@+id/cbRememberPassword"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="记住密码" />
+                            android:text="记住用户名" />
 
                         <View
                             android:layout_width="0dp"
