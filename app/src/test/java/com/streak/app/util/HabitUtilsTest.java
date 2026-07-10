@@ -245,6 +245,32 @@ public class HabitUtilsTest {
     }
 
     @Test
+    public void buildMonthCells_displayMonthDecoupledFromToday() {
+        // 显示 2026-03，今天是 2026-06-15：整个 3 月都不该有单元格被标记为今天
+        List<CalendarCell> cells = HabitUtils.buildMonthCells(
+                "2026-03-10", "2026-06-15", Collections.emptySet());
+        assertEquals(31, countDayCells(cells));
+        for (CalendarCell cell : cells) {
+            assertFalse(cell.isToday());
+        }
+    }
+
+    @Test
+    public void buildMonthCells_todayHighlightedWhenInDisplayedMonth() {
+        // 显示 2026-06，今天 2026-06-15：仅该天被标记为今天
+        List<CalendarCell> cells = HabitUtils.buildMonthCells(
+                "2026-06-01", "2026-06-15", Collections.emptySet());
+        int todayCount = 0;
+        for (CalendarCell cell : cells) {
+            if (cell.isToday()) {
+                todayCount++;
+                assertEquals("2026-06-15", cell.getDate());
+            }
+        }
+        assertEquals(1, todayCount);
+    }
+
+    @Test
     public void buildMonthCells_monthStartingOnSaturdayHasSixLeadingPads() {
         // 2026-08-01 是星期六；周日为首列，故其前应有 6 个空格
         List<CalendarCell> cells = HabitUtils.buildMonthCells("2026-08-01", Collections.emptySet());

@@ -190,16 +190,36 @@ public final class HabitUtils {
         return total;
     }
 
+    /**
+     * 便捷重载：以 today 同时作为「要显示的月份」与「今天」。
+     * 单参保持向后兼容（现有测试与不翻月的场景）。
+     */
     public static List<CalendarCell> buildMonthCells(String today, Set<String> completedDates) {
+        return buildMonthCells(today, today, completedDates);
+    }
+
+    /**
+     * 构建某个月的日历单元格。
+     * @param monthAnchor 决定显示哪个月（取其所在年月），支持翻月时传入目标月的任意一天
+     * @param todayDate   真正的今天，仅用于高亮「今日」单元格，与显示月份解耦
+     */
+    public static List<CalendarCell> buildMonthCells(String monthAnchor, String todayDate,
+                                                     Set<String> completedDates) {
         Set<String> done = completedDates == null ? java.util.Collections.emptySet() : completedDates;
-        LocalDate currentDate;
+        LocalDate anchorDate;
         try {
-            currentDate = LocalDate.parse(today);
+            anchorDate = LocalDate.parse(monthAnchor);
         } catch (Exception ignored) {
-            currentDate = LocalDate.now();
+            anchorDate = LocalDate.now();
+        }
+        String today;
+        try {
+            today = LocalDate.parse(todayDate).toString();
+        } catch (Exception ignored) {
+            today = LocalDate.now().toString();
         }
 
-        YearMonth yearMonth = YearMonth.from(currentDate);
+        YearMonth yearMonth = YearMonth.from(anchorDate);
         LocalDate firstDay = yearMonth.atDay(1);
         int startPadding = firstDay.getDayOfWeek().getValue() % 7;
         int monthLength = yearMonth.lengthOfMonth();
@@ -211,7 +231,7 @@ public final class HabitUtils {
         for (int day = 1; day <= monthLength; day++) {
             LocalDate date = yearMonth.atDay(day);
             String dateText = date.toString();
-            cells.add(new CalendarCell(false, day, dateText, date.equals(currentDate), done.contains(dateText)));
+            cells.add(new CalendarCell(false, day, dateText, dateText.equals(today), done.contains(dateText)));
         }
         int endPadding = (7 - cells.size() % 7) % 7;
         for (int i = 0; i < endPadding; i++) {
