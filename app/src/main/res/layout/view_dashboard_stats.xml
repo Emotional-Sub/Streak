@@ -16,7 +16,7 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#E7E2FF"
+            app:cardBackgroundColor="@color/streak_primary_container"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp">
 
@@ -30,7 +30,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="统计总览"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="22sp"
                     android:textStyle="bold" />
 
@@ -39,7 +39,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="这里可以快速看到整体坚持情况和各类习惯的完成表现。"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
                 <LinearLayout
@@ -86,8 +86,87 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:text="打卡热力图"
+                    android:textColor="@color/streak_text_primary"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="最近约 4 个月，颜色越深当天打卡越多"
+                    android:textColor="@color/streak_muted"
+                    android:textSize="13sp" />
+
+                <com.streak.app.ui.StreakHeatmapView
+                    android:id="@+id/heatmap"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="4dp"
+                        android:text="少"
+                        android:textColor="@color/streak_muted"
+                        android:textSize="11sp" />
+
+                    <View
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:layout_marginEnd="3dp"
+                        android:background="#EDF0F5" />
+
+                    <View
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:layout_marginEnd="3dp"
+                        android:background="#9BD3B6" />
+
+                    <View
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:layout_marginEnd="4dp"
+                        android:background="#18A67A" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="多"
+                        android:textColor="@color/streak_muted"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:text="打卡总览"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -117,7 +196,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="习惯分类分布"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -155,7 +234,7 @@
                     android:layout_height="wrap_content"
                     android:gravity="center"
                     android:text="暂无统计数据"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/streak_text_faint"
                     android:textSize="16sp"
                     android:visibility="gone" />
             </LinearLayout>
