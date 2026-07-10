@@ -79,6 +79,11 @@
             android:theme="@style/Theme.Streak" />
 
         <activity
+            android:name=".ui.ShareReportActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Streak" />
+
+        <activity
             android:name=".ui.PortraitCaptureActivity"
             android:exported="false"
             android:screenOrientation="portrait"

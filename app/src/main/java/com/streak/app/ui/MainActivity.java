@@ -1392,54 +1392,15 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     /**
      * 生成成就战报卡片并弹出「保存到相册 / 分享」选项。数据来自当前全部习惯。
      */
+    /** 打开战报全屏预览页（可切维度、预览、保存/分享）。 */
     private void shareAchievementCard() {
         if (allHabits.isEmpty()) {
             Toast.makeText(this, "还没有习惯，先去创建一个吧", Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(this, "正在生成战报…", Toast.LENGTH_SHORT).show();
-        final String name = resolveDisplayName();
-        final int longest = HabitUtils.bestLongestStreak(allHabits);
-        final int total = HabitUtils.totalCheckIns(allHabits);
-        final int badges = BadgeUtils.unlockedCount(BadgeUtils.evaluate(allHabits));
-        final String dateText = HabitUtils.today();
-        runInBackground(() -> {
-            Bitmap card = ShareCardGenerator.generate(name, longest, total, badges, dateText);
-            postToUi(() -> {
-                if (card == null) {
-                    Toast.makeText(this, "战报生成失败", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                new MaterialAlertDialogBuilder(this)
-                        .setTitle("我的坚持战报")
-                        .setItems(new CharSequence[]{"保存到相册", "分享给好友"}, (d, which) -> {
-                            if (which == 0) {
-                                requestSaveQr(card, "streak_report");
-                            } else {
-                                shareBitmap(card);
-                            }
-                        })
-                        .show();
-            });
-        });
-    }
-
-    /** 把 Bitmap 写入 cache 并通过 FileProvider 系统分享。 */
-    private void shareBitmap(Bitmap bitmap) {
-        runInBackground(() -> {
-            Uri uri = repository.cacheBitmapForShare(bitmap, "streak_report");
-            postToUi(() -> {
-                if (uri == null) {
-                    Toast.makeText(this, "分享失败，请重试", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                Intent share = new Intent(Intent.ACTION_SEND)
-                        .setType("image/png")
-                        .putExtra(Intent.EXTRA_STREAM, uri)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(Intent.createChooser(share, "分享我的坚持战报"));
-            });
-        });
+        Intent intent = new Intent(this, ShareReportActivity.class)
+                .putExtra(ShareReportActivity.EXTRA_DISPLAY_NAME, resolveDisplayName());
+        startActivity(intent);
     }
 
     @Override
