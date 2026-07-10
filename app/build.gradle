@@ -46,6 +46,18 @@ android {
         viewBinding true
     }
 
+    testOptions {
+        unitTests.all {
+            // 转发 loopback-fix javaagent 给 forked 测试 worker（否则受限环境下
+            // 测试进程无法建立 127.0.0.1 回环连接而报 Unable to establish loopback connection）
+            def agent = new File("${System.properties['user.home']}/.gradle/loopback-fix/loopback-fix.jar")
+            if (agent.exists()) {
+                jvmArgs "-javaagent:${agent.absolutePath}",
+                        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+            }
+        }
+    }
+
     packaging {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
