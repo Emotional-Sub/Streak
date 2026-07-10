@@ -330,6 +330,61 @@ public final class HabitUtils {
         return total;
     }
 
+    /**
+     * 近 N 天（含今天）的打卡总次数：跨全部习惯、按天去重、排除未来日期。
+     * 战报「时段成就」维度用它统计近 7 天 / 近 30 天。
+     */
+    public static int checkInsInLastDays(List<HabitItem> habits, int days) {
+        if (habits == null || days <= 0) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate start = today.minusDays(days - 1);
+        int total = 0;
+        for (HabitItem item : habits) {
+            if (item.getCompletedDates() == null) {
+                continue;
+            }
+            for (String date : new HashSet<>(item.getCompletedDates())) {
+                try {
+                    LocalDate d = LocalDate.parse(date);
+                    if (!d.isBefore(start) && !d.isAfter(today)) {
+                        total++;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return total;
+    }
+
+    /**
+     * 近 N 天（含今天）里「至少完成一项打卡」的活跃天数，用于战报展示坚持覆盖度。
+     */
+    public static int activeDaysInLastDays(List<HabitItem> habits, int days) {
+        if (habits == null || days <= 0) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate start = today.minusDays(days - 1);
+        Set<LocalDate> activeDays = new HashSet<>();
+        for (HabitItem item : habits) {
+            if (item.getCompletedDates() == null) {
+                continue;
+            }
+            for (String date : item.getCompletedDates()) {
+                try {
+                    LocalDate d = LocalDate.parse(date);
+                    if (!d.isBefore(start) && !d.isAfter(today)) {
+                        activeDays.add(d);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return activeDays.size();
+    }
+
     /** 全部习惯里的历史最长连续天数（跨习惯取最大）。 */
     public static int bestLongestStreak(List<HabitItem> habits) {
         if (habits == null) {
