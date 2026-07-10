@@ -200,7 +200,7 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:text="还没有匹配的习惯"
-            android:textColor="#6B7280"
+            android:textColor="@color/streak_text_faint"
             android:textSize="16sp"
             android:visibility="gone" />
     </FrameLayout>

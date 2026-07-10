@@ -4,7 +4,9 @@
         <item name="colorPrimary">@color/streak_primary</item>
         <item name="colorPrimaryVariant">@color/streak_primary_dark</item>
         <item name="colorSecondary">@color/streak_accent</item>
-        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorOnPrimary">@color/streak_on_primary</item>
+        <item name="android:colorBackground">@color/streak_bg</item>
+        <item name="colorSurface">@color/streak_surface</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">@color/streak_primary</item>
         <item name="materialButtonStyle">@style/Widget.Streak.Button</item>

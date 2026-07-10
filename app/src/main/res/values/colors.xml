@@ -1,17 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ===== 语义色（浅色）。深色变体见 values-night/colors.xml ===== -->
+    <!-- 页面/卡片背景与描边 -->
     <color name="streak_bg">#F4F6FB</color>
     <color name="streak_surface">#FFFFFF</color>
+    <color name="streak_surface_alt">#F5F7FC</color>
+    <color name="streak_line">#E7EAF3</color>
+
+    <!-- 品牌主色 -->
     <color name="streak_primary">#5B5FEF</color>
     <color name="streak_primary_dark">#4038C8</color>
     <color name="streak_primary_soft">#ECEBFF</color>
     <color name="streak_primary_container">#E7E2FF</color>
     <color name="streak_accent">#18A67A</color>
     <color name="streak_accent_soft">#DFF6EC</color>
-    <color name="streak_ink">#151827</color>
-    <color name="streak_muted">#667085</color>
-    <color name="streak_line">#E7EAF3</color>
     <color name="streak_danger">#EB5A6A</color>
+
+    <!-- 文字：主/次/弱三级，取代布局里散落的 #111827 / #4B5563 / #6B7280 -->
+    <color name="streak_ink">#151827</color>
+    <color name="streak_text_primary">#111827</color>
+    <color name="streak_text_secondary">#4B5563</color>
+    <color name="streak_muted">#667085</color>
+    <color name="streak_text_faint">#6B7280</color>
+    <color name="streak_on_primary">#FFFFFF</color>
 
     <!-- 分类饼图配色（学习/运动/生活/工作/阅读） -->
     <color name="cat_study">#5B5FEF</color>
@@ -19,4 +30,11 @@
     <color name="cat_life">#F5A623</color>
     <color name="cat_work">#EB5A6A</color>
     <color name="cat_read">#3FA9F5</color>
+
+    <!-- 热力图 5 档（浅色）。深色变体见 values-night -->
+    <color name="heat_0">#EDF0F5</color>
+    <color name="heat_1">#CDE9DA</color>
+    <color name="heat_2">#9BD3B6</color>
+    <color name="heat_3">#56B98A</color>
+    <color name="heat_4">#18A67A</color>
 </resources>

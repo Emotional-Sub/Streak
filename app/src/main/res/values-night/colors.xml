@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ===== 语义色（深色）。名字与 values/colors.xml 一一对应 ===== -->
+    <!-- 背景由深到浅分层：页面最深，卡片略浅，交替块再浅一档 -->
+    <color name="streak_bg">#12141C</color>
+    <color name="streak_surface">#1D2029</color>
+    <color name="streak_surface_alt">#242833</color>
+    <color name="streak_line">#333849</color>
+
+    <!-- 品牌主色在深色下略微提亮，保证对比度 -->
+    <color name="streak_primary">#8A8DF5</color>
+    <color name="streak_primary_dark">#6C6FE8</color>
+    <color name="streak_primary_soft">#2A2C46</color>
+    <color name="streak_primary_container">#2E3050</color>
+    <color name="streak_accent">#3FD3A3</color>
+    <color name="streak_accent_soft">#1E3A32</color>
+    <color name="streak_danger">#F17A87</color>
+
+    <!-- 文字：深色下反转为浅字，三级递减 -->
+    <color name="streak_ink">#ECEEF5</color>
+    <color name="streak_text_primary">#F2F4FA</color>
+    <color name="streak_text_secondary">#B9C0CE</color>
+    <color name="streak_muted">#9AA2B2</color>
+    <color name="streak_text_faint">#8A93A5</color>
+    <color name="streak_on_primary">#12141C</color>
+
+    <!-- 分类饼图配色：深色下略提亮 -->
+    <color name="cat_study">#8A8DF5</color>
+    <color name="cat_sport">#3FD3A3</color>
+    <color name="cat_life">#F5B84E</color>
+    <color name="cat_work">#F17A87</color>
+    <color name="cat_read">#5BB8F7</color>
+
+    <!-- 热力图 5 档（深色）：0 档用略高于背景的深灰，逐级加亮绿 -->
+    <color name="heat_0">#262B36</color>
+    <color name="heat_1">#204536</color>
+    <color name="heat_2">#2E6B4F</color>
+    <color name="heat_3">#33936B</color>
+    <color name="heat_4">#3FD3A3</color>
+</resources>

@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="标签"
-        android:textColor="#6B7280"
+        android:textColor="@color/streak_text_faint"
         android:textSize="14sp" />
 
     <TextView
@@ -20,7 +20,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="值"
-        android:textColor="#111827"
+        android:textColor="@color/streak_text_primary"
         android:textSize="14sp"
         android:textStyle="bold" />
 </LinearLayout>

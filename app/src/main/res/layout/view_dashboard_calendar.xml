@@ -16,7 +16,7 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#E7E2FF"
+            app:cardBackgroundColor="@color/streak_primary_container"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp">
 
@@ -26,21 +26,66 @@
                 android:orientation="vertical"
                 android:padding="20dp">
 
-                <TextView
-                    android:id="@+id/tvCalendarMonth"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="2026 年 06 月"
-                    android:textColor="#111827"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tvCalendarMonth"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="2026 年 06 月"
+                        android:textColor="@color/streak_text_primary"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCalendarPrev"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="44dp"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:text="‹"
+                        android:textColor="@color/streak_text_primary"
+                        android:textSize="22sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCalendarToday"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:text="今天"
+                        android:textColor="@color/streak_text_primary"
+                        android:textAllCaps="false"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCalendarNext"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="44dp"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:text="›"
+                        android:textColor="@color/streak_text_primary"
+                        android:textSize="22sp" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="紫色表示今天，绿色表示当天至少有一项习惯完成打卡。点击日期可查看详情。"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -102,7 +147,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="连续打卡排行"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -119,7 +164,7 @@
                     android:layout_height="wrap_content"
                     android:gravity="center"
                     android:text="暂无日历数据"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/streak_text_faint"
                     android:textSize="16sp"
                     android:visibility="gone" />
             </LinearLayout>

@@ -1,20 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- 全 App 采用浅色视觉设计（布局中大量硬编码浅色背景/深色文字）。
-         夜间主题镜像浅色主题，避免深色模式下按钮变默认紫、输入框丢圆角、
-         文字与背景对比失衡等问题，保证两种系统模式下表现一致。 -->
-    <style name="Theme.Streak" parent="Theme.Material3.Light.NoActionBar">
+    <!-- 深色主题：改用 Material3 Dark 父主题，配合 values-night/colors.xml 的语义色，
+         实现真正的深色模式（此前是镜像浅色的临时方案）。布局里的颜色均已提取为
+         @color/streak_* 语义名，故随主题自动切换。 -->
+    <style name="Theme.Streak" parent="Theme.Material3.Dark.NoActionBar">
         <item name="colorPrimary">@color/streak_primary</item>
         <item name="colorPrimaryVariant">@color/streak_primary_dark</item>
         <item name="colorSecondary">@color/streak_accent</item>
-        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorOnPrimary">@color/streak_on_primary</item>
+        <item name="android:colorBackground">@color/streak_bg</item>
+        <item name="colorSurface">@color/streak_surface</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">@color/streak_primary</item>
         <item name="materialButtonStyle">@style/Widget.Streak.Button</item>
         <item name="textInputStyle">@style/Widget.Streak.TextInputLayout</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="23">true</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="23">false</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

@@ -3,7 +3,6 @@ package com.streak.app.ui;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.util.AttributeSet;
@@ -60,9 +59,12 @@ public class CategoryPieChart extends View {
 
     private void init() {
         slicePaint.setStyle(Paint.Style.FILL);
-        holePaint.setColor(Color.WHITE);
+        // 甜甜圈中心挖空色用卡片表面色、中心文字用主文字色，随深色模式切换
+        holePaint.setColor(androidx.core.content.ContextCompat.getColor(
+                getContext(), com.streak.app.R.color.streak_surface));
         holePaint.setStyle(Paint.Style.FILL);
-        centerTextPaint.setColor(0xFF151827);
+        centerTextPaint.setColor(androidx.core.content.ContextCompat.getColor(
+                getContext(), com.streak.app.R.color.streak_text_primary));
         centerTextPaint.setTextAlign(Paint.Align.CENTER);
         centerTextPaint.setFakeBoldText(true);
     }
