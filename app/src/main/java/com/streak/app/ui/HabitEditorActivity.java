@@ -290,7 +290,7 @@ public class HabitEditorActivity extends AppCompatActivity {
         // 先存旧图路径，因为下面 setImageUri 会直接改写 originalHabit 自身
         String previousImageUri = originalHabit == null ? null : originalHabit.getImageUri();
         if (originalHabit == null) {
-            item.setId(System.currentTimeMillis());
+            item.setId(generateUniqueId(habits));
             item.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
             item.setCompletedDates(new ArrayList<>());
         }
@@ -323,6 +323,26 @@ public class HabitEditorActivity extends AppCompatActivity {
         savedHabit = true;
         setResult(RESULT_OK, new Intent().putExtra(EXTRA_HABIT_ID, item.getId()));
         finish();
+    }
+
+    /**
+     * 生成不与现有习惯冲突的 ID。以毫秒时间戳为基准，若同一毫秒内已存在相同 ID
+     * （连续新建两条会撞），则递增直到唯一，避免 saveHabit 的按 ID 替换把另一条覆盖掉。
+     */
+    private long generateUniqueId(List<HabitItem> habits) {
+        long id = System.currentTimeMillis();
+        boolean clash = true;
+        while (clash) {
+            clash = false;
+            for (HabitItem h : habits) {
+                if (h.getId() == id) {
+                    id++;
+                    clash = true;
+                    break;
+                }
+            }
+        }
+        return id;
     }
 
     private boolean savedHabit = false;
