@@ -59,6 +59,9 @@ public class ReminderScheduler {
             trigger = trigger.plusDays(1);
         }
 
+        if (alarmManager == null) {
+            return;
+        }
         long triggerAtMillis = trigger.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         PendingIntent pendingIntent = pendingIntent(habit);
         if (canScheduleExact()) {
@@ -87,6 +90,9 @@ public class ReminderScheduler {
     }
 
     public void cancel(long habitId) {
+        if (alarmManager == null) {
+            return;
+        }
         alarmManager.cancel(pendingIntent(habitId));
     }
 
