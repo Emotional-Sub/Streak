@@ -200,4 +200,118 @@ public class HabitUtilsTest {
         assertFalse(cells.isEmpty());
         assertEquals(0, cells.size() % 7);
     }
+
+    private static int countDayCells(List<CalendarCell> cells) {
+        int n = 0;
+        for (CalendarCell c : cells) {
+            if (!c.isEmpty()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    @Test
+    public void buildMonthCells_leapFebruaryHas29Days() {
+        assertEquals(29, countDayCells(
+                HabitUtils.buildMonthCells("2024-02-10", Collections.emptySet())));
+    }
+
+    @Test
+    public void buildMonthCells_nonLeapFebruaryHas28Days() {
+        assertEquals(28, countDayCells(
+                HabitUtils.buildMonthCells("2025-02-10", Collections.emptySet())));
+    }
+
+    @Test
+    public void buildMonthCells_31DayMonth() {
+        assertEquals(31, countDayCells(
+                HabitUtils.buildMonthCells("2026-01-15", Collections.emptySet())));
+    }
+
+    @Test
+    public void buildMonthCells_yearBoundaryDecember() {
+        List<CalendarCell> cells = HabitUtils.buildMonthCells("2026-12-25", Collections.emptySet());
+        assertEquals(31, countDayCells(cells));
+        assertEquals(0, cells.size() % 7);
+    }
+
+    @Test
+    public void buildMonthCells_monthStartingOnSundayHasNoLeadingPadding() {
+        // 2026-03-01 是星期日；周日在本实现里是每行第一格，故无前导空格
+        List<CalendarCell> cells = HabitUtils.buildMonthCells("2026-03-01", Collections.emptySet());
+        assertFalse(cells.get(0).isEmpty());
+        assertEquals("2026-03-01", cells.get(0).getDate());
+    }
+
+    @Test
+    public void buildMonthCells_monthStartingOnSaturdayHasSixLeadingPads() {
+        // 2026-08-01 是星期六；周日为首列，故其前应有 6 个空格
+        List<CalendarCell> cells = HabitUtils.buildMonthCells("2026-08-01", Collections.emptySet());
+        for (int i = 0; i < 6; i++) {
+            assertTrue(cells.get(i).isEmpty());
+        }
+        assertFalse(cells.get(6).isEmpty());
+        assertEquals("2026-08-01", cells.get(6).getDate());
+    }
+
+    // ---- longestStreak ----
+
+    @Test
+    public void longestStreak_emptyOrNull_isZero() {
+        assertEquals(0, HabitUtils.longestStreak(null));
+        assertEquals(0, HabitUtils.longestStreak(new ArrayList<>()));
+    }
+
+    @Test
+    public void longestStreak_singleSegment() {
+        List<String> dates = Arrays.asList("2026-01-01", "2026-01-02", "2026-01-03");
+        assertEquals(3, HabitUtils.longestStreak(dates));
+    }
+
+    @Test
+    public void longestStreak_picksMaxAcrossSegments() {
+        // 两段：2 天 和 4 天，取最长的 4
+        List<String> dates = Arrays.asList(
+                "2026-01-01", "2026-01-02",
+                "2026-02-10", "2026-02-11", "2026-02-12", "2026-02-13");
+        assertEquals(4, HabitUtils.longestStreak(dates));
+    }
+
+    @Test
+    public void longestStreak_isIndependentOfToday() {
+        // 全是很久以前的日期，currentStreak 会是 0，但 longestStreak 仍应数出连续段
+        List<String> dates = Arrays.asList("2000-01-01", "2000-01-02", "2000-01-03");
+        assertEquals(0, HabitUtils.currentStreak(dates));
+        assertEquals(3, HabitUtils.longestStreak(dates));
+    }
+
+    @Test
+    public void longestStreak_deduplicatesAndIgnoresUnparseable() {
+        List<String> dates = Arrays.asList(
+                "2026-01-01", "2026-01-01", "not-a-date", "2026-01-02");
+        assertEquals(2, HabitUtils.longestStreak(dates));
+    }
+
+    // ---- filterHabits / totalCheckIns / completionRate null 防护 ----
+
+    @Test
+    public void filterHabits_nullSourceReturnsEmpty() {
+        assertTrue(HabitUtils.filterHabits(null, "x", "全部").isEmpty());
+    }
+
+    @Test
+    public void totalCheckIns_nullIsZero() {
+        assertEquals(0, HabitUtils.totalCheckIns(null));
+    }
+
+    @Test
+    public void completionRate_nullIsZero() {
+        assertEquals(0, HabitUtils.completionRate(null));
+    }
+
+    @Test
+    public void uniqueCheckIns_nullItemIsZero() {
+        assertEquals(0, HabitUtils.uniqueCheckIns(null));
+    }
 }
