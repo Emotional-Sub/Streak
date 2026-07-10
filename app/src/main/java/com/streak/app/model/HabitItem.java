@@ -1,7 +1,9 @@
 package com.streak.app.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class HabitItem {
     private long id;
@@ -14,13 +16,19 @@ public class HabitItem {
     private List<String> tags;
     private List<String> completedDates;
     private boolean reminderEnabled;
+    // 每个打卡日期对应的可选备注/心情，key=yyyy-MM-dd。老备份缺此字段时 Gson 置 null，按空处理。
+    private Map<String, String> dateNotes;
+    // 目标周期：0 表示「每天」，N(>0) 表示「每周 N 次」。老备份缺此字段默认 0（每天），行为不变。
+    private int weeklyTarget;
 
     public HabitItem() {
         this.tags = new ArrayList<>();
         this.completedDates = new ArrayList<>();
+        this.dateNotes = new HashMap<>();
         this.category = "学习";
         this.reminderTime = "20:00";
         this.reminderEnabled = true;
+        this.weeklyTarget = 0;
     }
 
     public HabitItem(long id, String title, String content, String reminderTime, String createdAt,
@@ -122,5 +130,48 @@ public class HabitItem {
 
     public void setReminderEnabled(boolean reminderEnabled) {
         this.reminderEnabled = reminderEnabled;
+    }
+
+    public Map<String, String> getDateNotes() {
+        if (dateNotes == null) {
+            dateNotes = new HashMap<>();
+        }
+        return dateNotes;
+    }
+
+    public void setDateNotes(Map<String, String> dateNotes) {
+        this.dateNotes = dateNotes == null ? new HashMap<>() : dateNotes;
+    }
+
+    /** 取某天的打卡备注；无则返回空串。 */
+    public String getNote(String date) {
+        String note = getDateNotes().get(date);
+        return note == null ? "" : note;
+    }
+
+    /** 设置/清除某天备注：空串等同清除，避免残留空条目。 */
+    public void setNote(String date, String note) {
+        if (date == null) {
+            return;
+        }
+        if (note == null || note.trim().isEmpty()) {
+            getDateNotes().remove(date);
+        } else {
+            getDateNotes().put(date, note.trim());
+        }
+    }
+
+    /** 目标周期：0=每天，N=每周 N 次。 */
+    public int getWeeklyTarget() {
+        return weeklyTarget;
+    }
+
+    public void setWeeklyTarget(int weeklyTarget) {
+        this.weeklyTarget = Math.max(0, Math.min(weeklyTarget, 7));
+    }
+
+    /** 是否为「每周 N 次」型目标（否则为每天）。 */
+    public boolean isWeeklyGoal() {
+        return weeklyTarget > 0;
     }
 }
