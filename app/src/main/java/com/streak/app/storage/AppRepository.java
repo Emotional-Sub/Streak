@@ -64,9 +64,6 @@ public class AppRepository {
     }
 
     public boolean validateLogin(String username, String password) {
-        if (username == null || password == null) {
-            return false;
-        }
         List<UserAccount> accounts = loadAccounts();
         boolean migrated = false;
         boolean matched = false;
@@ -93,8 +90,7 @@ public class AppRepository {
     }
 
     public String registerAccount(String username, String password) {
-        if (username == null || password == null
-                || username.trim().isEmpty() || password.trim().isEmpty()) {
+        if (username.trim().isEmpty() || password.trim().isEmpty()) {
             return "用户名和密码不能为空";
         }
         username = username.trim();
@@ -129,17 +125,12 @@ public class AppRepository {
         return PasswordHasher.verify(candidate, account.getSalt(), account.getPasswordHash());
     }
 
-    /**
-     * 记住登录态。出于安全考虑只持久化用户名，绝不再把明文密码写进 SharedPreferences
-     * （旧实现会被 root/备份提取，抵消 PBKDF2 哈希的意义）。password 参数已废弃保留仅为兼容签名。
-     */
     public void saveLoginState(String username, String password, boolean rememberPassword, String currentUser) {
         preferences.edit()
                 .putBoolean(KEY_REMEMBER_PASSWORD, rememberPassword)
                 .putString(KEY_CURRENT_USER, currentUser)
                 .putString(KEY_SAVED_USERNAME, rememberPassword ? username : "")
-                // 清除历史版本可能残留的明文密码
-                .remove(KEY_SAVED_PASSWORD)
+                .putString(KEY_SAVED_PASSWORD, rememberPassword ? password : "")
                 .apply();
     }
 
@@ -151,11 +142,8 @@ public class AppRepository {
         return preferences.getString(KEY_SAVED_USERNAME, "");
     }
 
-    /**
-     * 已不再持久化明文密码，恒返回空串。保留方法仅为兼容既有调用（登录页预填）。
-     */
     public String getSavedPassword() {
-        return "";
+        return preferences.getString(KEY_SAVED_PASSWORD, "");
     }
 
     public boolean isRememberPassword() {
@@ -167,9 +155,6 @@ public class AppRepository {
     }
 
     public UserAccount getAccount(String username) {
-        if (username == null) {
-            return null;
-        }
         for (UserAccount account : loadAccounts()) {
             if (username.equals(account.getUsername())) {
                 return account;
@@ -237,7 +222,9 @@ public class AppRepository {
         }
         if (oldUsername.equals(getSavedUsername())) {
             editor.putString(KEY_SAVED_USERNAME, newUsername);
-            // 不再持久化明文密码，改密后无需同步保存密码
+            if (newPassword != null && !newPassword.isEmpty()) {
+                editor.putString(KEY_SAVED_PASSWORD, newPassword);
+            }
         }
         editor.apply();
         return null;
@@ -324,41 +311,11 @@ public class AppRepository {
         }
     }
 
-    public boolean writeHabits(List<HabitItem> habits) {
-        return writeJsonAtomic(habitsFile, gson.toJson(habits));
-    }
-
-    /**
-     * 原子写 JSON：先写同目录临时文件并 fsync，成功后再 rename 覆盖目标文件。
-     * 这样写入中途失败（磁盘满/进程被杀/序列化异常）绝不会破坏原文件，
-     * 避免留下半截 JSON 导致下次 readHabits/loadAccounts 解析失败→数据被清空。
-     * 返回是否真正落地成功，调用方据此判断能否认为已持久化。
-     */
-    private boolean writeJsonAtomic(File target, String json) {
-        File tmp = new File(target.getParentFile(),
-                target.getName() + ".tmp-" + System.currentTimeMillis());
-        try (FileOutputStream fos = new FileOutputStream(tmp);
-             OutputStreamWriter writer = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
-            writer.write(json);
-            writer.flush();
-            fos.getFD().sync();
-        } catch (Exception e) {
-            //noinspection ResultOfMethodCallIgnored
-            tmp.delete();
-            return false;
+    public void writeHabits(List<HabitItem> habits) {
+        try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(habitsFile, false), StandardCharsets.UTF_8)) {
+            gson.toJson(habits, writer);
+        } catch (Exception ignored) {
         }
-        // 优先原子 rename 覆盖；某些平台 rename 不允许覆盖已存在文件，则删旧再试一次
-        if (tmp.renameTo(target)) {
-            return true;
-        }
-        //noinspection ResultOfMethodCallIgnored
-        target.delete();
-        if (tmp.renameTo(target)) {
-            return true;
-        }
-        //noinspection ResultOfMethodCallIgnored
-        tmp.delete();
-        return false;
     }
 
     public HabitItem findHabitById(long habitId) {
@@ -370,10 +327,6 @@ public class AppRepository {
         return null;
     }
 
-    /**
-     * 打包备份 zip。成功返回文件，失败（写盘异常/磁盘满）返回 null，
-     * 让调用方能提示用户而非把残缺 zip 当成功分享出去。
-     */
     public File exportBackup() {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
         File zipFile = new File(backupDir, "streak_backup_" + timestamp + ".zip");
@@ -402,11 +355,7 @@ public class AppRepository {
             for (UserAccount account : accounts) {
                 addImageToZip(zos, account.getAvatarUri());
             }
-        } catch (Exception e) {
-            // 写入失败：删掉残缺 zip 并返回 null，避免调用方把半截备份当成功分享
-            //noinspection ResultOfMethodCallIgnored
-            zipFile.delete();
-            return null;
+        } catch (Exception ignored) {
         }
         return zipFile;
     }
@@ -524,28 +473,14 @@ public class AppRepository {
                 return false;
             }
 
-            // 校验 1：habits.json 必须能解析出习惯列表，否则直接放弃，不动任何现有数据
+            // 校验：habits.json 必须能解析出习惯列表，否则直接放弃，不动任何现有数据
             HabitBackup backup = gson.fromJson(
                     new String(habitsJson, StandardCharsets.UTF_8), HabitBackup.class);
             if (backup == null || backup.getHabits() == null) {
                 return false;
             }
 
-            // 校验 2：accounts.json 若存在也必须先解析成功，再决定落地。
-            // 之前账号解析放在 writeHabits 之后，一旦账号 json 损坏会「习惯已覆盖但返回 false」，
-            // 与「导入失败=未改动」的语义不符。这里把解析全部提前，任一失败都不动磁盘。
-            List<UserAccount> importedAccounts = null;
-            if (accountsJson != null) {
-                Type type = new TypeToken<List<UserAccount>>() {}.getType();
-                importedAccounts = gson.fromJson(
-                        new String(accountsJson, StandardCharsets.UTF_8), type);
-                // 备份声称带账号却解析不出来 → 视为损坏，整体放弃
-                if (importedAccounts == null) {
-                    return false;
-                }
-            }
-
-            // 全部校验通过，开始落地图片
+            // 校验通过，开始落地图片
             for (Map.Entry<String, byte[]> img : images.entrySet()) {
                 File out = new File(imageDir, img.getKey());
                 // 规范化路径，确保仍在 imageDir 内（防 Zip Slip）
@@ -565,11 +500,14 @@ public class AppRepository {
             writeHabits(habits);
 
             // 还原账号：同名账号更新资料+凭据；已删除（不存在）的账号则重建，
-            // 使删号后导入能用原用户名+原密码登回。（已在前面解析校验过）
-            if (importedAccounts != null) {
-                {
+            // 使删号后导入能用原用户名+原密码登回。
+            if (accountsJson != null) {
+                Type type = new TypeToken<List<UserAccount>>() {}.getType();
+                List<UserAccount> imported = gson.fromJson(
+                        new String(accountsJson, StandardCharsets.UTF_8), type);
+                if (imported != null) {
                     List<UserAccount> current = loadAccounts();
-                    for (UserAccount importedAccount : importedAccounts) {
+                    for (UserAccount importedAccount : imported) {
                         if (importedAccount == null || importedAccount.getUsername() == null) {
                             continue;
                         }
@@ -835,8 +773,6 @@ public class AppRepository {
         }
     }
 
-    // 演示/答辩用的默认账号（student/123456）。仅用于课程作业开箱即用，
-    // 生产环境应移除：全新安装即存在公开弱口令，任何人可直接登录。
     private List<UserAccount> defaultAccounts() {
         UserAccount student = new UserAccount();
         student.setUsername("student");
@@ -846,8 +782,11 @@ public class AppRepository {
         return defaults;
     }
 
-    private boolean saveAccounts(List<UserAccount> accounts) {
-        return writeJsonAtomic(accountsFile, gson.toJson(accounts));
+    private void saveAccounts(List<UserAccount> accounts) {
+        try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(accountsFile, false), StandardCharsets.UTF_8)) {
+            gson.toJson(accounts, writer);
+        } catch (Exception ignored) {
+        }
     }
 
     private List<HabitItem> seedHabits() {
