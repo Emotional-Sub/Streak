@@ -37,7 +37,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="晨跑打卡"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -47,7 +47,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="创建时间：2026-06-18 16:00"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/streak_text_faint"
                     android:textSize="12sp" />
             </LinearLayout>
 
@@ -75,7 +75,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="坚持晨跑 30 分钟，结束后做 5 分钟拉伸。"
-            android:textColor="#4B5563"
+            android:textColor="@color/streak_text_secondary"
             android:textSize="14sp" />
 
         <TextView
@@ -84,7 +84,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="运动 · 提醒 06:30 · 已打卡 0 次 · 连续 0 天"
-            android:textColor="#374151"
+            android:textColor="@color/streak_text_secondary"
             android:textSize="13sp" />
 
         <TextView
@@ -93,7 +93,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="#晨练 #有氧"
-            android:textColor="#5A48F5"
+            android:textColor="@color/streak_primary"
             android:textSize="13sp"
             android:visibility="gone" />
 
@@ -109,7 +109,21 @@
                 style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
                 android:text="编辑"
+                android:textAllCaps="false" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnHabitShare"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="分享"
                 android:textAllCaps="false" />
 
             <com.google.android.material.button.MaterialButton
@@ -117,6 +131,9 @@
                 style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
                 android:text="删除"
                 android:textAllCaps="false" />
         </LinearLayout>

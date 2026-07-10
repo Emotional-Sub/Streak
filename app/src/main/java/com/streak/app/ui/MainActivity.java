@@ -12,6 +12,7 @@ import android.text.TextWatcher;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -36,7 +37,6 @@ import com.streak.app.databinding.ItemSheetHabitBinding;
 import com.streak.app.databinding.ItemStatRowBinding;
 import com.streak.app.databinding.ItemTemplateOptionBinding;
 import com.streak.app.databinding.SheetCalendarDetailBinding;
-import com.streak.app.databinding.SheetHabitPreviewBinding;
 import com.streak.app.databinding.SheetHabitQrBinding;
 import com.streak.app.databinding.SheetTemplateChooserBinding;
 import com.streak.app.databinding.ViewDashboardCalendarBinding;
@@ -51,6 +51,7 @@ import com.streak.app.model.UserAccount;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.BadgeUtils;
+import com.streak.app.util.ShareCardGenerator;
 import com.streak.app.util.HabitQrCodec;
 import com.streak.app.util.HabitUtils;
 import com.streak.app.util.QrGenerator;
@@ -402,9 +403,18 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         binding.fabAddHabit.setOnClickListener(v -> showTemplateChooser());
         binding.fabScanHabit.setOnClickListener(v -> launchCameraScan());
 
+        // 日历翻月
+        calendarBinding.btnCalendarPrev.setOnClickListener(v -> shiftCalendarMonth(-1));
+        calendarBinding.btnCalendarNext.setOnClickListener(v -> shiftCalendarMonth(1));
+        calendarBinding.btnCalendarToday.setOnClickListener(v -> {
+            displayedMonth = null; // 复位到当月
+            updateCalendarPage();
+        });
+
         profileBinding.btnEditProfile.setOnClickListener(v ->
                 profileEditLauncher.launch(new Intent(this, ProfileEditActivity.class)));
         profileBinding.btnDeleteAccount.setOnClickListener(v -> confirmDeleteAccount());
+        profileBinding.btnShareReport.setOnClickListener(v -> shareAchievementCard());
         profileBinding.cardBadgeWall.setOnClickListener(v ->
                 startActivity(new Intent(this, BadgeWallActivity.class)));
     }
@@ -572,16 +582,16 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             textView.setLayoutParams(params);
             textView.setGravity(android.view.Gravity.CENTER);
             textView.setText(cell.isEmpty() ? "" : String.valueOf(cell.getDay()));
-            textView.setTextColor(ContextCompat.getColor(this, android.R.color.black));
+            textView.setTextColor(ContextCompat.getColor(this, R.color.streak_text_primary));
             if (cell.isToday()) {
                 textView.setBackgroundResource(R.drawable.bg_calendar_today);
-                textView.setTextColor(ContextCompat.getColor(this, android.R.color.white));
+                textView.setTextColor(ContextCompat.getColor(this, R.color.streak_on_primary));
             } else if (cell.isCompleted()) {
                 textView.setBackgroundResource(R.drawable.bg_calendar_completed);
-                textView.setTextColor(0xFF1A7F4B);
+                textView.setTextColor(ContextCompat.getColor(this, R.color.streak_accent));
             } else {
                 textView.setBackgroundResource(R.drawable.bg_calendar_default);
-                textView.setTextColor(0xFF6B7280);
+                textView.setTextColor(ContextCompat.getColor(this, R.color.streak_text_faint));
             }
             if (!cell.isEmpty()) {
                 textView.setOnClickListener(v -> showCalendarDetailDialog(cell.getDate()));
@@ -612,17 +622,25 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     private void updateStatsPage() {
         int totalCheckIns = HabitUtils.totalCheckIns(allHabits);
-        int bestStreak = 0;
-        for (HabitItem item : allHabits) {
-            bestStreak = Math.max(bestStreak, HabitUtils.currentStreak(item.getCompletedDates()));
-        }
+        int currentBest = HabitUtils.bestCurrentStreak(allHabits);
+        int longestBest = HabitUtils.bestLongestStreak(allHabits);
         tvStatsHabitCount.setText(String.valueOf(allHabits.size()));
         tvStatsTotalCheckIns.setText(String.valueOf(totalCheckIns));
-        tvStatsBestStreak.setText(bestStreak + "天");
+        tvStatsBestStreak.setText(currentBest + "天");
         tvStatsCompletionRate.setText(HabitUtils.completionRate(allHabits) + "%");
 
+        // 热力图数据：把所有习惯的去重打卡按日期聚合成计数
+        statsBinding.heatmap.setData(buildHeatmapCounts());
+
         statsBinding.layoutOverviewStats.removeAllViews();
-        addStatRow(statsBinding.layoutOverviewStats, "最近 7 天打卡次数", String.valueOf(HabitUtils.weeklyCheckIns(allHabits)));
+        // 当前连续 vs 历史最长
+        addStatRow(statsBinding.layoutOverviewStats, "当前连续 / 历史最长",
+                currentBest + " 天 / " + longestBest + " 天");
+        // 周环比：本周 vs 上周
+        int thisWeek = HabitUtils.weeklyCheckIns(allHabits);
+        int lastWeek = HabitUtils.lastWeekCheckIns(allHabits);
+        addStatRow(statsBinding.layoutOverviewStats, "最近 7 天打卡次数",
+                thisWeek + "  " + weekTrendText(thisWeek, lastWeek));
         addStatRow(statsBinding.layoutOverviewStats, "本月打卡次数", String.valueOf(HabitUtils.monthlyCheckIns(allHabits)));
         int reminderCount = 0;
         for (HabitItem item : allHabits) {
@@ -658,6 +676,36 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
     }
 
+    /** 把所有习惯的去重打卡日期聚合成「日期 -> 次数」，喂给热力图。 */
+    private java.util.Map<String, Integer> buildHeatmapCounts() {
+        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+        for (HabitItem item : allHabits) {
+            if (item.getCompletedDates() == null) {
+                continue;
+            }
+            for (String date : new HashSet<>(item.getCompletedDates())) {
+                if (date == null) {
+                    continue;
+                }
+                Integer prev = counts.get(date);
+                counts.put(date, prev == null ? 1 : prev + 1);
+            }
+        }
+        return counts;
+    }
+
+    /** 周环比文案：↑N / ↓N / 持平。 */
+    private String weekTrendText(int thisWeek, int lastWeek) {
+        int diff = thisWeek - lastWeek;
+        if (diff > 0) {
+            return "(较上周 ↑" + diff + ")";
+        }
+        if (diff < 0) {
+            return "(较上周 ↓" + (-diff) + ")";
+        }
+        return "(与上周持平)";
+    }
+
     private void updateCategoryPie() {
         List<CategoryPieChart.Slice> slices = new ArrayList<>();
         int totalHabits = 0;
@@ -687,7 +735,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             int percent = totalHabits == 0 ? 0 : Math.round(slice.value * 100f / totalHabits);
             Chip chip = new Chip(this);
             chip.setText(slice.label + " " + percent + "%");
-            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(0xFFF2F3F9));
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this, R.color.streak_surface_alt)));
             chip.setChipStrokeWidth(0f);
             chip.setChipIconVisible(true);
             chip.setChipIcon(new android.graphics.drawable.ColorDrawable(slice.color));
@@ -908,13 +957,24 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             openEditor(-1L);
         });
 
-        // 预置模板
+        // 预置模板：当习惯页选中了具体分类（非「全部」）时，只展示该分类的模板
+        int shown = 0;
         for (HabitTemplate template : HabitTemplate.presets()) {
+            if (!"全部".equals(selectedCategory)
+                    && !selectedCategory.equals(template.getCategory())) {
+                continue;
+            }
             String desc = template.getCategory() + " · 提醒 " + template.getReminderTime();
             addTemplateRow(container, template.getTitle(), desc, () -> {
                 dialog.dismiss();
                 openEditorWithTemplate(template);
             });
+            shown++;
+        }
+        // 该分类没有预置模板时给个提示，避免只剩「空白新建」显得像出错
+        if (shown == 0) {
+            addTemplateRow(container, "该分类暂无模板",
+                    "点上方「空白新建」自定义，或在习惯页切到「全部」查看所有模板。", () -> {});
         }
 
         dialog.setContentView(sheetBinding.getRoot());
@@ -1039,6 +1099,20 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
 
         container.addView(rowBinding.getRoot());
+
+        // 已完成且当天有备注/心情：在行下方追加一行灰字展示
+        if (completed) {
+            String note = item.getNote(date);
+            if (!note.isEmpty()) {
+                TextView noteView = new TextView(this);
+                noteView.setText("“" + note + "”");
+                noteView.setTextColor(ContextCompat.getColor(this, R.color.streak_muted));
+                noteView.setTextSize(13f);
+                int start = (int) (22 * getResources().getDisplayMetrics().density);
+                noteView.setPadding(start, 0, 0, (int) (6 * getResources().getDisplayMetrics().density));
+                container.addView(noteView);
+            }
+        }
     }
 
     private void toggleDateCheckIn(long habitId, String date, boolean add) {
@@ -1136,16 +1210,55 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     @Override
     public void onToggleComplete(HabitItem item) {
-        // 读写习惯文件放后台线程，完成后回主线程刷新（打卡是高频操作，避免每次卡主线程）
+        boolean doneToday = item.getCompletedDates() != null && item.getCompletedDates().contains(today);
+        if (doneToday) {
+            // 撤销打卡：直接移除今天并清掉当天备注
+            writeTodayCheckIn(item.getId(), false, null);
+        } else {
+            // 打卡：弹可选备注框（可留空/跳过，不打断快速打卡）
+            promptCheckInNote(item);
+        }
+    }
+
+    /** 打卡时的可选备注/心情输入框：留空或「跳过」直接完成，不强制。 */
+    private void promptCheckInNote(HabitItem item) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("记一句今日心情 / 备注（可留空）");
+        input.setMinLines(2);
+        input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        FrameLayout wrap = new FrameLayout(this);
+        wrap.setPadding(pad, pad / 2, pad, 0);
+        wrap.addView(input);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("完成打卡：" + item.getTitle())
+                .setView(wrap)
+                .setNegativeButton("跳过", (d, w) -> writeTodayCheckIn(item.getId(), true, null))
+                .setPositiveButton("保存", (d, w) ->
+                        writeTodayCheckIn(item.getId(), true, input.getText().toString()))
+                .show();
+    }
+
+    /**
+     * 写入/撤销今日打卡，并可附带当天备注。读写文件放后台线程（打卡高频，避免卡主线程）。
+     */
+    private void writeTodayCheckIn(long habitId, boolean add, String note) {
         runInBackground(() -> {
             List<HabitItem> habits = repository.readHabits();
             for (HabitItem target : habits) {
-                if (target.getId() == item.getId()) {
+                if (target.getId() == habitId) {
                     List<String> completedDates = new ArrayList<>(target.getCompletedDates());
-                    if (completedDates.contains(today)) {
-                        completedDates.remove(today);
+                    if (add) {
+                        if (!completedDates.contains(today)) {
+                            completedDates.add(today);
+                        }
+                        target.setNote(today, note);
                     } else {
-                        completedDates.add(today);
+                        completedDates.remove(today);
+                        target.setNote(today, null); // 清除当天备注
                     }
                     target.setCompletedDates(completedDates);
                     break;
@@ -1158,40 +1271,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     @Override
     public void onEdit(HabitItem item) {
-        showHabitPreview(item);
+        // 卡片上「编辑」直接进编辑页，不再经过预览弹窗
+        openEditor(item.getId());
     }
 
-    private void showHabitPreview(HabitItem item) {
-        SheetHabitPreviewBinding sheetBinding = SheetHabitPreviewBinding.inflate(getLayoutInflater());
-        sheetBinding.tvPreviewTitle.setText(item.getTitle());
-        sheetBinding.tvPreviewMeta.setText(
-                item.getCategory() + " · 提醒 " + item.getReminderTime()
-                        + " · 连续 " + HabitUtils.currentStreak(item.getCompletedDates()) + " 天"
-        );
-        sheetBinding.tvPreviewContent.setText(item.getContent());
-
-        if (item.getTags() != null && !item.getTags().isEmpty()) {
-            StringBuilder tags = new StringBuilder();
-            for (String tag : item.getTags()) {
-                tags.append("#").append(tag).append(" ");
-            }
-            sheetBinding.tvPreviewTags.setText(tags.toString().trim());
-            sheetBinding.tvPreviewTags.setVisibility(View.VISIBLE);
-        } else {
-            sheetBinding.tvPreviewTags.setVisibility(View.GONE);
-        }
-
-        BottomSheetDialog dialog = new BottomSheetDialog(this);
-        sheetBinding.btnPreviewEdit.setOnClickListener(v -> {
-            dialog.dismiss();
-            openEditor(item.getId());
-        });
-        sheetBinding.btnPreviewShareQr.setOnClickListener(v -> {
-            dialog.dismiss();
-            showHabitQr(item);
-        });
-        dialog.setContentView(sheetBinding.getRoot());
-        dialog.show();
+    @Override
+    public void onShare(HabitItem item) {
+        // 卡片上「分享」直接出二维码
+        showHabitQr(item);
     }
 
     private void showHabitQr(HabitItem item) {
@@ -1242,6 +1329,59 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     saved != null ? "已保存到相册的 Streak 相册" : "保存失败，请重试",
                     Toast.LENGTH_SHORT
             ).show());
+        });
+    }
+
+    /**
+     * 生成成就战报卡片并弹出「保存到相册 / 分享」选项。数据来自当前全部习惯。
+     */
+    private void shareAchievementCard() {
+        if (allHabits.isEmpty()) {
+            Toast.makeText(this, "还没有习惯，先去创建一个吧", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "正在生成战报…", Toast.LENGTH_SHORT).show();
+        final String name = resolveDisplayName();
+        final int longest = HabitUtils.bestLongestStreak(allHabits);
+        final int total = HabitUtils.totalCheckIns(allHabits);
+        final int badges = BadgeUtils.unlockedCount(BadgeUtils.evaluate(allHabits));
+        final String dateText = HabitUtils.today();
+        runInBackground(() -> {
+            Bitmap card = ShareCardGenerator.generate(name, longest, total, badges, dateText);
+            postToUi(() -> {
+                if (card == null) {
+                    Toast.makeText(this, "战报生成失败", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle("我的坚持战报")
+                        .setItems(new CharSequence[]{"保存到相册", "分享给好友"}, (d, which) -> {
+                            if (which == 0) {
+                                requestSaveQr(card, "streak_report");
+                            } else {
+                                shareBitmap(card);
+                            }
+                        })
+                        .show();
+            });
+        });
+    }
+
+    /** 把 Bitmap 写入 cache 并通过 FileProvider 系统分享。 */
+    private void shareBitmap(Bitmap bitmap) {
+        runInBackground(() -> {
+            Uri uri = repository.cacheBitmapForShare(bitmap, "streak_report");
+            postToUi(() -> {
+                if (uri == null) {
+                    Toast.makeText(this, "分享失败，请重试", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                Intent share = new Intent(Intent.ACTION_SEND)
+                        .setType("image/png")
+                        .putExtra(Intent.EXTRA_STREAM, uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(Intent.createChooser(share, "分享我的坚持战报"));
+            });
         });
     }
 

@@ -16,7 +16,7 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#E7E2FF"
+            app:cardBackgroundColor="@color/streak_primary_container"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp">
 
@@ -59,7 +59,7 @@
                         android:layout_marginStart="14dp"
                         android:layout_weight="1"
                         android:text="student"
-                        android:textColor="#111827"
+                        android:textColor="@color/streak_text_primary"
                         android:textSize="22sp"
                         android:textStyle="bold" />
 
@@ -78,7 +78,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="坚持不是一次爆发，而是很多次按时完成。"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
                 <LinearLayout
@@ -136,7 +136,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="勋章墙"
-                        android:textColor="#111827"
+                        android:textColor="@color/streak_text_primary"
                         android:textSize="18sp"
                         android:textStyle="bold" />
 
@@ -201,7 +201,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="账号信息"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -232,7 +232,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="当前最佳习惯"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -242,7 +242,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="晨跑打卡"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -252,7 +252,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="所属分类：运动"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/streak_text_faint"
                     android:textSize="14sp" />
 
                 <TextView
@@ -261,7 +261,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="连续打卡：0 天"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/streak_text_faint"
                     android:textSize="14sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -283,7 +283,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="习惯分类分布"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -313,7 +313,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="使用说明"
-                    android:textColor="#111827"
+                    android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -322,7 +322,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:text="1. 在“习惯”页新增、编辑和删除每日打卡项目。"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
                 <TextView
@@ -330,7 +330,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="2. 点击习惯卡片右侧按钮可切换今日打卡状态。"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
                 <TextView
@@ -338,7 +338,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="3. 在编辑页可以选择分类、设置提醒、拍照或从相册选图。"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
                 <TextView
@@ -346,20 +346,28 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="4. 右上角导出按钮可生成 ZIP 备份（含照片），导入可恢复。"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnShareReport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="生成我的坚持战报"
+            android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnDeleteAccount"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:text="删除账号"
             android:textAllCaps="false"
-            android:textColor="#EB5A6A"
-            app:strokeColor="#EB5A6A" />
+            android:textColor="@color/streak_danger"
+            app:strokeColor="@color/streak_danger" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

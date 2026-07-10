@@ -730,6 +730,30 @@ public class AppRepository {
         }
     }
 
+    /**
+     * 把 Bitmap 写入 cache/shares 目录并返回可对外分享的 FileProvider content:// uri。
+     * 用于成就战报等临时图片分享，失败返回 null。应在后台线程调用。
+     */
+    public Uri cacheBitmapForShare(android.graphics.Bitmap bitmap, String baseName) {
+        if (bitmap == null) {
+            return null;
+        }
+        try {
+            File shareDir = new File(context.getCacheDir(), "shares");
+            //noinspection ResultOfMethodCallIgnored
+            shareDir.mkdirs();
+            File target = new File(shareDir,
+                    sanitizeFileName(baseName) + "_" + System.currentTimeMillis() + ".png");
+            try (FileOutputStream out = new FileOutputStream(target)) {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            }
+            return FileProvider.getUriForFile(
+                    context, context.getPackageName() + ".fileprovider", target);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private String sanitizeFileName(String name) {
         if (name == null || name.trim().isEmpty()) {
             return "streak_qr";
