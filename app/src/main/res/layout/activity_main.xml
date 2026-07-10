@@ -61,7 +61,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
-                app:cardBackgroundColor="@android:color/white"
+                app:cardBackgroundColor="@color/streak_surface"
                 app:cardCornerRadius="24dp"
                 app:cardElevation="3dp"
                 app:strokeColor="@color/streak_line"
@@ -122,7 +122,7 @@
                             android:layout_height="wrap_content"
                             android:padding="8dp"
                             android:text="注册账号"
-                            android:textColor="#5A48F5"
+                            android:textColor="@color/streak_primary"
                             android:textStyle="bold" />
                     </LinearLayout>
 
@@ -149,7 +149,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
                         android:text="演示账号已在上方给出"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/streak_text_faint"
                         android:textSize="12sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

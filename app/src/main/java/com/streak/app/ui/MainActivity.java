@@ -48,6 +48,7 @@ import com.streak.app.model.Badge;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.HabitTemplate;
 import com.streak.app.model.UserAccount;
+import com.streak.app.StreakApp;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.BadgeUtils;
@@ -60,6 +61,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.OutputStream;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -87,6 +89,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private String selectedCategory = "全部";
     private String currentUser = "";
     private String today = HabitUtils.today();
+    // 日历当前显示的月份锚点（该月任意一天）；null 表示显示当月
+    private String displayedMonth;
     private File pendingExportFile;
 
     private static final String[] SLOGANS = {
@@ -415,6 +419,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 profileEditLauncher.launch(new Intent(this, ProfileEditActivity.class)));
         profileBinding.btnDeleteAccount.setOnClickListener(v -> confirmDeleteAccount());
         profileBinding.btnShareReport.setOnClickListener(v -> shareAchievementCard());
+        profileBinding.btnThemeMode.setOnClickListener(v -> showThemeModeChooser());
+        updateThemeModeButtonText();
         profileBinding.cardBadgeWall.setOnClickListener(v ->
                 startActivity(new Intent(this, BadgeWallActivity.class)));
     }
@@ -498,6 +504,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         if (item.getItemId() == R.id.nav_stats) {
             statsBinding.pieCategory.replay();
         }
+        // 进入日历页时复位到当月，避免停留在上次翻到的历史月份
+        if (item.getItemId() == R.id.nav_calendar && displayedMonth != null) {
+            displayedMonth = null;
+            updateCalendarPage();
+        }
         return true;
     }
 
@@ -563,14 +574,22 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void updateCalendarPage() {
+        // 显示锚点：翻月时用 displayedMonth，否则用今天所在月
+        String anchor = displayedMonth != null ? displayedMonth : today;
         calendarBinding.tvCalendarMonth.setText(
-                LocalDate.parse(today).format(DateTimeFormatter.ofPattern("yyyy 年 MM 月", Locale.CHINA))
+                LocalDate.parse(anchor).format(DateTimeFormatter.ofPattern("yyyy 年 MM 月", Locale.CHINA))
         );
+        // 非当月时才显示「今天」快捷按钮
+        boolean viewingCurrentMonth = YearMonth.from(LocalDate.parse(anchor))
+                .equals(YearMonth.from(LocalDate.parse(today)));
+        calendarBinding.btnCalendarToday.setVisibility(viewingCurrentMonth ? View.GONE : View.VISIBLE);
+
         Set<String> completedSet = new HashSet<>();
         for (HabitItem item : allHabits) {
             completedSet.addAll(item.getCompletedDates());
         }
-        List<CalendarCell> cells = HabitUtils.buildMonthCells(today, completedSet);
+        // 锚点决定显示哪个月，today 仅用于高亮今日
+        List<CalendarCell> cells = HabitUtils.buildMonthCells(anchor, today, completedSet);
         calendarBinding.gridCalendar.removeAllViews();
         int cellSize = (int) (40 * getResources().getDisplayMetrics().density);
         for (CalendarCell cell : cells) {
@@ -618,6 +637,18 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             rowBinding.tvStatValue.setText(HabitUtils.currentStreak(item.getCompletedDates()) + " 天");
             calendarBinding.layoutRankingContainer.addView(rowBinding.getRoot());
         }
+    }
+
+    /** 日历翻月：delta 为 -1（上月）或 +1（下月）。 */
+    private void shiftCalendarMonth(int delta) {
+        String anchor = displayedMonth != null ? displayedMonth : today;
+        try {
+            LocalDate shifted = LocalDate.parse(anchor).plusMonths(delta).withDayOfMonth(1);
+            displayedMonth = shifted.toString();
+        } catch (Exception ignored) {
+            displayedMonth = null;
+        }
+        updateCalendarPage();
     }
 
     private void updateStatsPage() {
@@ -1330,6 +1361,32 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     Toast.LENGTH_SHORT
             ).show());
         });
+    }
+
+    private static final String[] THEME_LABELS = {"跟随系统", "浅色", "深色"};
+
+    /** 弹出主题模式选择：跟随系统 / 浅色 / 深色。 */
+    private void showThemeModeChooser() {
+        int current = repository.getThemeMode();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("深色模式")
+                .setSingleChoiceItems(THEME_LABELS, current, (dialog, which) -> {
+                    dialog.dismiss();
+                    if (which != repository.getThemeMode()) {
+                        repository.setThemeMode(which);
+                        updateThemeModeButtonText();
+                        // 立即应用；夜间模式变化会自动重建当前 Activity
+                        StreakApp.applyTheme(which);
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void updateThemeModeButtonText() {
+        int mode = repository.getThemeMode();
+        String label = mode >= 0 && mode < THEME_LABELS.length ? THEME_LABELS[mode] : THEME_LABELS[0];
+        profileBinding.btnThemeMode.setText("深色模式：" + label);
     }
 
     /**
