@@ -314,4 +314,74 @@ public class HabitUtilsTest {
     public void uniqueCheckIns_nullItemIsZero() {
         assertEquals(0, HabitUtils.uniqueCheckIns(null));
     }
+
+    // ---- 周期口径（weeklyTarget）与统计辅助 ----
+
+    private static HabitItem weeklyHabit(int target, List<String> dates) {
+        HabitItem item = habit("周目标", "运动", Collections.emptyList(),
+                new ArrayList<>(dates), true);
+        item.setWeeklyTarget(target);
+        return item;
+    }
+
+    @Test
+    public void weeklyDoneCount_countsWithinWindowOnly() {
+        HabitItem item = weeklyHabit(3, Arrays.asList(daysAgo(0), daysAgo(3), daysAgo(10)));
+        // daysAgo(10) 超出近 7 天窗口
+        assertEquals(2, HabitUtils.weeklyDoneCount(item));
+    }
+
+    @Test
+    public void isOnTrackToday_dailyRequiresTodayCheckIn() {
+        HabitItem doneToday = habit("每天", "运动", Collections.emptyList(),
+                new ArrayList<>(Arrays.asList(daysAgo(0))), true);
+        assertTrue(HabitUtils.isOnTrackToday(doneToday));
+
+        HabitItem notToday = habit("每天", "运动", Collections.emptyList(),
+                new ArrayList<>(Arrays.asList(daysAgo(1))), true);
+        assertFalse(HabitUtils.isOnTrackToday(notToday));
+    }
+
+    @Test
+    public void isOnTrackToday_weeklyGoalCountsWholeWeek() {
+        // 每周 2 次：本周已 2 次即达标，即便今天没打
+        HabitItem met = weeklyHabit(2, Arrays.asList(daysAgo(1), daysAgo(2)));
+        assertTrue(HabitUtils.isOnTrackToday(met));
+        // 每周 3 次：本周只 2 次，未达标
+        HabitItem unmet = weeklyHabit(3, Arrays.asList(daysAgo(1), daysAgo(2)));
+        assertFalse(HabitUtils.isOnTrackToday(unmet));
+    }
+
+    @Test
+    public void completionRate_weeklyGoalReportsProgress() {
+        // 每周 4 次、本周 2 次 -> 50%
+        HabitItem weekly = weeklyHabit(4, Arrays.asList(daysAgo(0), daysAgo(1)));
+        assertEquals(50, HabitUtils.completionRate(Arrays.asList(weekly)));
+    }
+
+    @Test
+    public void completionRate_weeklyGoalCapsAtHundred() {
+        // 每周 2 次、本周 3 次 -> 封顶 100%
+        HabitItem weekly = weeklyHabit(2, Arrays.asList(daysAgo(0), daysAgo(1), daysAgo(2)));
+        assertEquals(100, HabitUtils.completionRate(Arrays.asList(weekly)));
+    }
+
+    @Test
+    public void lastWeekCheckIns_countsPreviousWindowOnly() {
+        // daysAgo(8)、daysAgo(9) 落在上一个 7 天窗口；daysAgo(0) 属本周不计
+        HabitItem item = habit("A", "学习", Collections.emptyList(),
+                new ArrayList<>(Arrays.asList(daysAgo(0), daysAgo(8), daysAgo(9))), true);
+        assertEquals(2, HabitUtils.lastWeekCheckIns(Arrays.asList(item)));
+    }
+
+    @Test
+    public void bestStreakHelpers_pickMaxAcrossHabits() {
+        HabitItem a = habit("A", "学习", Collections.emptyList(),
+                new ArrayList<>(Arrays.asList(daysAgo(0), daysAgo(1))), true);
+        HabitItem b = habit("B", "学习", Collections.emptyList(),
+                new ArrayList<>(Arrays.asList("2000-01-01", "2000-01-02", "2000-01-03")), true);
+        List<HabitItem> source = Arrays.asList(a, b);
+        assertEquals(2, HabitUtils.bestCurrentStreak(source)); // b 是历史段，当前连续 0
+        assertEquals(3, HabitUtils.bestLongestStreak(source)); // b 历史最长 3
+    }
 }

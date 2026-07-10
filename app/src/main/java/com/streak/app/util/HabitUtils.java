@@ -136,21 +136,6 @@ public final class HabitUtils {
         return new HashSet<>(item.getCompletedDates()).size();
     }
 
-    public static int completionRate(List<HabitItem> habits) {
-        if (habits == null || habits.isEmpty()) {
-            return 0;
-        }
-        String today = today();
-        int completed = 0;
-        for (HabitItem item : habits) {
-            List<String> dates = item.getCompletedDates();
-            if (dates != null && dates.contains(today)) {
-                completed++;
-            }
-        }
-        return (int) ((completed * 100f) / habits.size());
-    }
-
     public static int weeklyCheckIns(List<HabitItem> habits) {
         if (habits == null) {
             return 0;
@@ -233,6 +218,120 @@ public final class HabitUtils {
             cells.add(new CalendarCell(true, 0, "", false, false));
         }
         return cells;
+    }
+
+    /**
+     * 判断习惯「今天是否算达标」：
+     * - 每天型（weeklyTarget=0）：今天打过卡即达标。
+     * - 每周 N 次型：本自然周（近 7 天窗口）内去重打卡数 ≥ N 即达标，与具体哪天无关。
+     */
+    public static boolean isOnTrackToday(HabitItem item) {
+        if (item == null) {
+            return false;
+        }
+        List<String> dates = item.getCompletedDates();
+        if (dates == null) {
+            return false;
+        }
+        if (!item.isWeeklyGoal()) {
+            return dates.contains(today());
+        }
+        return weeklyDoneCount(item) >= item.getWeeklyTarget();
+    }
+
+    /** 单个习惯最近 7 天（含今天）的去重打卡次数，排除未来日期。 */
+    public static int weeklyDoneCount(HabitItem item) {
+        if (item == null || item.getCompletedDates() == null) {
+            return 0;
+        }
+        LocalDate todayDate = LocalDate.now();
+        LocalDate weekStart = todayDate.minusDays(6);
+        int count = 0;
+        for (String date : new HashSet<>(item.getCompletedDates())) {
+            try {
+                LocalDate d = LocalDate.parse(date);
+                if (!d.isBefore(weekStart) && !d.isAfter(todayDate)) {
+                    count++;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 完成率：每天型看今天是否打卡；每周 N 次型看本周达标进度（done/target，封顶 100%）。
+     * 空列表返回 0。
+     */
+    public static int completionRate(List<HabitItem> habits) {
+        if (habits == null || habits.isEmpty()) {
+            return 0;
+        }
+        float sum = 0f;
+        for (HabitItem item : habits) {
+            if (item.isWeeklyGoal()) {
+                int done = weeklyDoneCount(item);
+                sum += Math.min(1f, done / (float) item.getWeeklyTarget());
+            } else {
+                List<String> dates = item.getCompletedDates();
+                if (dates != null && dates.contains(today())) {
+                    sum += 1f;
+                }
+            }
+        }
+        return (int) (sum * 100f / habits.size());
+    }
+
+    /**
+     * 全部习惯「上一个 7 天窗口」的去重打卡总数，用于周环比对比（本周用 weeklyCheckIns）。
+     */
+    public static int lastWeekCheckIns(List<HabitItem> habits) {
+        if (habits == null) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate thisWeekStart = today.minusDays(6);
+        LocalDate lastWeekStart = today.minusDays(13);
+        int total = 0;
+        for (HabitItem item : habits) {
+            if (item.getCompletedDates() == null) {
+                continue;
+            }
+            for (String date : new HashSet<>(item.getCompletedDates())) {
+                try {
+                    LocalDate d = LocalDate.parse(date);
+                    if (!d.isBefore(lastWeekStart) && d.isBefore(thisWeekStart)) {
+                        total++;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return total;
+    }
+
+    /** 全部习惯里的历史最长连续天数（跨习惯取最大）。 */
+    public static int bestLongestStreak(List<HabitItem> habits) {
+        if (habits == null) {
+            return 0;
+        }
+        int best = 0;
+        for (HabitItem item : habits) {
+            best = Math.max(best, longestStreak(item.getCompletedDates()));
+        }
+        return best;
+    }
+
+    /** 全部习惯里当前连续天数的最大值。 */
+    public static int bestCurrentStreak(List<HabitItem> habits) {
+        if (habits == null) {
+            return 0;
+        }
+        int best = 0;
+        for (HabitItem item : habits) {
+            best = Math.max(best, currentStreak(item.getCompletedDates()));
+        }
+        return best;
     }
 
     private static boolean safeContains(String text, String query) {
