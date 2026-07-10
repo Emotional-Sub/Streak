@@ -41,6 +41,12 @@ public class AppRepository {
     private static final String KEY_SAVED_PASSWORD = "saved_password";
     private static final String KEY_REMEMBER_PASSWORD = "remember_password";
     private static final String KEY_CURRENT_USER = "current_user";
+    private static final String KEY_THEME_MODE = "theme_mode";
+
+    // 主题模式：跟随系统 / 浅色 / 深色
+    public static final int THEME_SYSTEM = 0;
+    public static final int THEME_LIGHT = 1;
+    public static final int THEME_DARK = 2;
 
     private final Context context;
     private final SharedPreferences preferences;
@@ -152,6 +158,15 @@ public class AppRepository {
 
     public String getCurrentUser() {
         return preferences.getString(KEY_CURRENT_USER, "");
+    }
+
+    /** 读取主题模式偏好，默认跟随系统。 */
+    public int getThemeMode() {
+        return preferences.getInt(KEY_THEME_MODE, THEME_SYSTEM);
+    }
+
+    public void setThemeMode(int mode) {
+        preferences.edit().putInt(KEY_THEME_MODE, mode).apply();
     }
 
     public UserAccount getAccount(String username) {
