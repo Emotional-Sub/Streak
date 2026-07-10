@@ -15,3 +15,8 @@ local.properties
 # Native build cache
 .externalNativeBuild/
 .cxx/
+
+# 签名密钥库与发布产物：含敏感凭据，泄露可被冒名签发假冒应用，严禁提交
+release/
+*.jks
+*.keystore
