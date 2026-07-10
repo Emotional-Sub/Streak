@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F5F7FC"
+    android:background="@color/streak_bg"
     android:orientation="vertical">
 
     <com.google.android.material.appbar.MaterialToolbar
@@ -74,6 +74,22 @@
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/actEditorCategory"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="none"
+                            android:textColor="@color/streak_ink"
+                            android:textSize="16sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.Streak.TextInputLayout.ExposedDropdownMenu"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:hint="目标周期">
+
+                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                            android:id="@+id/actEditorGoal"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="none"

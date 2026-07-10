@@ -91,6 +91,11 @@ public class HabitEditorActivity extends AppCompatActivity {
         binding.toolbarEditor.setTitle(originalHabit == null ? "新增习惯" : "编辑习惯");
     }
 
+    // 目标周期下拉项，索引即 weeklyTarget：0=每天，1..6=每周 N 次
+    private static final String[] GOAL_OPTIONS = {
+            "每天", "每周 1 次", "每周 2 次", "每周 3 次", "每周 4 次", "每周 5 次", "每周 6 次"
+    };
+
     private void setupCategoryDropdown() {
         List<String> categories = new ArrayList<>(HabitUtils.categories());
         categories.remove("全部");
@@ -103,6 +108,27 @@ public class HabitEditorActivity extends AppCompatActivity {
         if (originalHabit == null) {
             binding.actEditorCategory.setText("学习", false);
         }
+
+        // 目标周期下拉
+        ArrayAdapter<String> goalAdapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_dropdown_item_1line, GOAL_OPTIONS);
+        binding.actEditorGoal.setAdapter(goalAdapter);
+        int target = originalHabit == null ? 0 : originalHabit.getWeeklyTarget();
+        if (target < 0 || target >= GOAL_OPTIONS.length) {
+            target = 0;
+        }
+        binding.actEditorGoal.setText(GOAL_OPTIONS[target], false);
+    }
+
+    /** 从下拉框文本解析出 weeklyTarget（匹配不到则按每天=0）。 */
+    private int readWeeklyTarget() {
+        String selected = String.valueOf(binding.actEditorGoal.getText()).trim();
+        for (int i = 0; i < GOAL_OPTIONS.length; i++) {
+            if (GOAL_OPTIONS[i].equals(selected)) {
+                return i;
+            }
+        }
+        return 0;
     }
 
     private void setupActivityResultLaunchers() {
@@ -300,6 +326,7 @@ public class HabitEditorActivity extends AppCompatActivity {
         item.setReminderTime(reminderTime);
         item.setTags(tags);
         item.setReminderEnabled(binding.switchReminder.isChecked());
+        item.setWeeklyTarget(readWeeklyTarget());
         item.setImageUri(currentImageUri);
 
         if (originalHabit != null && !TextUtils.equals(previousImageUri, currentImageUri)) {

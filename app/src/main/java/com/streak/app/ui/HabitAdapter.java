@@ -23,6 +23,8 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
 
         void onEdit(HabitItem item);
 
+        void onShare(HabitItem item);
+
         void onDelete(HabitItem item);
     }
 
@@ -142,8 +144,10 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             binding.tvHabitTitle.setText(item.getTitle());
             binding.tvHabitCreatedAt.setText("创建时间：" + item.getCreatedAt());
             binding.tvHabitContent.setText(item.getContent());
+            String goalText = item.isWeeklyGoal()
+                    ? "每周 " + item.getWeeklyTarget() + " 次" : "每天";
             binding.tvHabitMeta.setText(
-                    item.getCategory() + " · 提醒 " + item.getReminderTime()
+                    item.getCategory() + " · " + goalText + " · 提醒 " + item.getReminderTime()
                             + " · 已打卡 " + totalCheckIns + " 次"
                             + " · 连续 " + streak + " 天"
             );
@@ -176,6 +180,7 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             binding.btnHabitComplete.setContentDescription(completedToday ? "已打卡" : "打卡");
             binding.btnHabitComplete.setOnClickListener(v -> callback.onToggleComplete(item));
             binding.btnHabitEdit.setOnClickListener(v -> callback.onEdit(item));
+            binding.btnHabitShare.setOnClickListener(v -> callback.onShare(item));
             binding.btnHabitDelete.setOnClickListener(v -> callback.onDelete(item));
         }
     }
