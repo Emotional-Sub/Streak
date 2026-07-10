@@ -96,6 +96,9 @@ public final class HabitUtils {
 
     public static List<HabitItem> filterHabits(List<HabitItem> source, String query, String category) {
         List<HabitItem> result = new ArrayList<>();
+        if (source == null) {
+            return result;
+        }
         String safeQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         String safeCategory = category == null ? "全部" : category;
         for (HabitItem item : source) {
@@ -112,6 +115,9 @@ public final class HabitUtils {
     }
 
     public static int totalCheckIns(List<HabitItem> habits) {
+        if (habits == null) {
+            return 0;
+        }
         int total = 0;
         for (HabitItem item : habits) {
             total += uniqueCheckIns(item);
@@ -131,13 +137,14 @@ public final class HabitUtils {
     }
 
     public static int completionRate(List<HabitItem> habits) {
-        if (habits.isEmpty()) {
+        if (habits == null || habits.isEmpty()) {
             return 0;
         }
         String today = today();
         int completed = 0;
         for (HabitItem item : habits) {
-            if (item.getCompletedDates().contains(today)) {
+            List<String> dates = item.getCompletedDates();
+            if (dates != null && dates.contains(today)) {
                 completed++;
             }
         }
@@ -145,7 +152,11 @@ public final class HabitUtils {
     }
 
     public static int weeklyCheckIns(List<HabitItem> habits) {
-        LocalDate weekStart = LocalDate.now().minusDays(6);
+        if (habits == null) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate weekStart = today.minusDays(6);
         int total = 0;
         for (HabitItem item : habits) {
             if (item.getCompletedDates() == null) {
@@ -154,7 +165,9 @@ public final class HabitUtils {
             // 按日期去重，与 uniqueCheckIns 口径一致：同一天的重复记录只算一次
             for (String date : new HashSet<>(item.getCompletedDates())) {
                 try {
-                    if (!LocalDate.parse(date).isBefore(weekStart)) {
+                    LocalDate d = LocalDate.parse(date);
+                    // 落在 [weekStart, today] 窗口内才算；排除未来日期（导入/编辑脏数据）
+                    if (!d.isBefore(weekStart) && !d.isAfter(today)) {
                         total++;
                     }
                 } catch (Exception ignored) {
@@ -165,7 +178,11 @@ public final class HabitUtils {
     }
 
     public static int monthlyCheckIns(List<HabitItem> habits) {
-        String monthPrefix = LocalDate.now().format(MONTH_FORMAT);
+        if (habits == null) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        String monthPrefix = today.format(MONTH_FORMAT);
         int total = 0;
         for (HabitItem item : habits) {
             if (item.getCompletedDates() == null) {
@@ -173,8 +190,15 @@ public final class HabitUtils {
             }
             // 按日期去重，与 uniqueCheckIns 口径一致
             for (String date : new HashSet<>(item.getCompletedDates())) {
-                if (date != null && date.startsWith(monthPrefix)) {
-                    total++;
+                if (date == null || !date.startsWith(monthPrefix)) {
+                    continue;
+                }
+                try {
+                    // 本月内也要排除未来日期（如本月月底补了将来某天）
+                    if (!LocalDate.parse(date).isAfter(today)) {
+                        total++;
+                    }
+                } catch (Exception ignored) {
                 }
             }
         }
