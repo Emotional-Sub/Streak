@@ -78,7 +78,10 @@ public final class ImageLoader {
         int sampleSize = 1;
         int halfW = width / 2;
         int halfH = height / 2;
-        while (halfW / sampleSize >= target && halfH / sampleSize >= target) {
+        // 用 || 而非 &&：只要任一维度仍超目标就继续降采样。
+        // 否则极端宽高比图片（如 8000×400 全景/长截图）会因短边早早低于 target
+        // 而完全跳过降采样，最终按原始像素解码导致 OOM。
+        while (halfW / sampleSize >= target || halfH / sampleSize >= target) {
             sampleSize *= 2;
         }
         return sampleSize;
