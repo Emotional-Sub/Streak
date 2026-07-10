@@ -118,7 +118,10 @@ public final class QrDecoder {
         int sampleSize = 1;
         int halfW = width / 2;
         int halfH = height / 2;
-        while (halfW / sampleSize >= target && halfH / sampleSize >= target) {
+        // 用 || 而非 &&：只要任一维度仍超目标就继续降采样。
+        // 否则极端宽高比图片（如长截图）短边早早低于 target 会完全跳过降采样，
+        // 随后 decodeBitmap 里 new int[width*height] 再叠一份全尺寸像素数组 → OOM。
+        while (halfW / sampleSize >= target || halfH / sampleSize >= target) {
             sampleSize *= 2;
         }
         return sampleSize;
