@@ -32,23 +32,35 @@ public final class HabitQrCodec {
         return builder.build().toString();
     }
 
+    // 二维码内容是别人分享的不可信输入，对各字段设长度上限，防止超长内容注入编辑器
+    private static final int MAX_TITLE = 60;
+    private static final int MAX_CONTENT = 500;
+    private static final int MAX_CATEGORY = 30;
+    private static final int MAX_REMINDER = 10;
+    private static final int MAX_TAGS = 120;
+
     /** 解析扫到的内容；非本格式返回 null。 */
     public static Decoded decode(String raw) {
-        if (raw == null || !raw.startsWith(SCHEME)) {
+        // 收紧前缀匹配：必须严格等于 SCHEME 或以 SCHEME+"?" 开头，
+        // 否则 "streak-habit/v1EVIL?..." 这类伪造串也能通过松散的 startsWith。
+        if (raw == null
+                || !(raw.equals(SCHEME) || raw.startsWith(SCHEME + "?"))) {
             return null;
         }
         try {
             Uri uri = Uri.parse(raw);
-            String title = uri.getQueryParameter("t");
-            if (title == null || title.trim().isEmpty()) {
+            String title = sanitize(uri.getQueryParameter("t"), MAX_TITLE);
+            if (title.trim().isEmpty()) {
                 return null;
             }
             Decoded decoded = new Decoded();
             decoded.title = title;
-            decoded.content = nonNull(uri.getQueryParameter("c"));
-            decoded.category = nonNull(uri.getQueryParameter("cat"));
-            decoded.reminderTime = uri.getQueryParameter("r");
-            decoded.tags = uri.getQueryParameter("tags");
+            decoded.content = sanitize(uri.getQueryParameter("c"), MAX_CONTENT);
+            decoded.category = sanitize(uri.getQueryParameter("cat"), MAX_CATEGORY);
+            String reminder = sanitize(uri.getQueryParameter("r"), MAX_REMINDER);
+            decoded.reminderTime = reminder.isEmpty() ? null : reminder;
+            String tags = sanitize(uri.getQueryParameter("tags"), MAX_TAGS);
+            decoded.tags = tags.isEmpty() ? null : tags;
             return decoded;
         } catch (Exception e) {
             return null;
@@ -57,6 +69,25 @@ public final class HabitQrCodec {
 
     private static String nonNull(String s) {
         return s == null ? "" : s;
+    }
+
+    /**
+     * 清洗不可信输入：去掉控制字符（换行/制表符等，防止注入多行内容破坏编辑器展示），
+     * 并截断到最大长度。
+     */
+    private static String sanitize(String s, int maxLen) {
+        if (s == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length() && sb.length() < maxLen; i++) {
+            char c = s.charAt(i);
+            // 过滤 ASCII 控制字符（含换行、回车、制表），其余字符（含中文）保留
+            if (c >= 0x20 && c != 0x7F) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     private static String TextUtilsJoin(List<String> tags) {
