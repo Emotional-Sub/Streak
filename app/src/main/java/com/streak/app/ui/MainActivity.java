@@ -177,7 +177,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     @Override
     protected void onDestroy() {
-        backgroundExecutor.shutdown();
+        // 清理已投递但未执行的主线程回调，避免它们在 Activity 销毁后触碰已失效的视图/上下文
+        mainHandler.removeCallbacksAndMessages(null);
+        backgroundExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -186,6 +188,35 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         super.onSaveInstanceState(outState);
         if (pendingExportFile != null) {
             outState.putString("pending_export_file", pendingExportFile.getAbsolutePath());
+        }
+    }
+
+    /**
+     * 把结果回主线程执行，但仅当 Activity 尚存活时才跑。
+     * 后台任务完成时 Activity 可能已 finishing/destroyed，直接碰 binding/Toast/launcher 会崩，
+     * 这里统一加生命周期守卫。
+     */
+    private void postToUi(Runnable action) {
+        mainHandler.post(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            action.run();
+        });
+    }
+
+    /**
+     * 安全地向后台线程池提交任务：executor 已关闭（onDestroy 后）时静默跳过，
+     * 避免 RejectedExecutionException。
+     */
+    private void runInBackground(Runnable task) {
+        if (backgroundExecutor.isShutdown()) {
+            return;
+        }
+        try {
+            backgroundExecutor.execute(task);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // Activity 正在销毁，丢弃任务即可
         }
     }
 
@@ -209,11 +240,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                         Toast.makeText(this, "已取消导出", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    backgroundExecutor.execute(() -> {
+                    runInBackground(() -> {
                         boolean success = copyFileToUri(exportFile, uri);
                         //noinspection ResultOfMethodCallIgnored
                         exportFile.delete();
-                        mainHandler.post(() -> Toast.makeText(
+                        postToUi(() -> Toast.makeText(
                                 this,
                                 success ? "备份已导出（含照片），请到你选择的位置查看" : "保存失败，请重试",
                                 Toast.LENGTH_SHORT
@@ -229,9 +260,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                         return;
                     }
                     Toast.makeText(this, "正在导入恢复…", Toast.LENGTH_SHORT).show();
-                    backgroundExecutor.execute(() -> {
+                    runInBackground(() -> {
                         boolean success = repository.importBackup(uri);
-                        mainHandler.post(() -> {
+                        postToUi(() -> {
                             Toast.makeText(
                                     this,
                                     success ? "导入成功，数据已恢复" : "导入失败，请确认选择的是本应用导出的备份",
@@ -300,6 +331,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     }
                     if (qr != null) {
                         saveQrToGallery(qr, title);
+                    } else {
+                        // 授权对话框显示期间进程曾被系统回收，待存二维码已丢失。
+                        // 明确提示重试，而非静默失败。
+                        Toast.makeText(this, "已授权，请重新点击保存到相册", Toast.LENGTH_SHORT).show();
                     }
                 }
         );
@@ -400,12 +435,12 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         // PBKDF2 校验较重，放后台线程，避免阻塞 UI；校验期间禁用按钮防重复点击
         binding.btnLogin.setEnabled(false);
         boolean remember = binding.cbRememberPassword.isChecked();
-        backgroundExecutor.execute(() -> {
+        runInBackground(() -> {
             boolean ok = repository.validateLogin(username, password);
             if (ok) {
                 repository.saveLoginState(username, password, remember, username);
             }
-            mainHandler.post(() -> {
+            postToUi(() -> {
                 binding.btnLogin.setEnabled(true);
                 if (ok) {
                     currentUser = username;
@@ -476,10 +511,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         currentUser = repository.getCurrentUser();
         // 读习惯/账号涉及读盘+JSON 解析，放后台线程避免阻塞 UI（真机上会掉帧）。
         // 读完回主线程再更新视图。
-        backgroundExecutor.execute(() -> {
+        runInBackground(() -> {
             final List<HabitItem> habits = repository.readHabits();
             final String displayName = resolveDisplayName();
-            mainHandler.post(() -> {
+            postToUi(() -> {
                 allHabits.clear();
                 allHabits.addAll(habits);
                 binding.toolbarDashboard.setSubtitle("欢迎你，" + displayName);
@@ -812,9 +847,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     private void exportBackup() {
         Toast.makeText(this, "正在打包备份…", Toast.LENGTH_SHORT).show();
-        backgroundExecutor.execute(() -> {
+        runInBackground(() -> {
             File exportFile = repository.exportBackup();
-            mainHandler.post(() -> {
+            postToUi(() -> {
+                // exportBackup 失败会返回 null（磁盘满/写盘异常），此时提示而非崩溃
+                if (exportFile == null) {
+                    Toast.makeText(this, "备份打包失败，请检查存储空间后重试", Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 pendingExportFile = exportFile;
                 exportLauncher.launch(exportFile.getName());
             });
@@ -838,9 +878,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 .setNegativeButton("取消", null)
                 .setPositiveButton("删除", (dialog, which) -> {
                     // 删号涉及读写 JSON、取消闹钟、删图片，放后台线程避免阻塞 UI
-                    backgroundExecutor.execute(() -> {
+                    runInBackground(() -> {
                         repository.deleteCurrentAccountAndData();
-                        mainHandler.post(() -> {
+                        postToUi(() -> {
                             Toast.makeText(this, "账号已删除", Toast.LENGTH_SHORT).show();
                             showLoginPage();
                         });
@@ -1002,8 +1042,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void toggleDateCheckIn(long habitId, String date, boolean add) {
-        List<HabitItem> habits = repository.readHabits();
-        for (HabitItem target : habits) {
+        // 先在内存里更新（快，UI 立即刷新，支持连续补卡不关闭弹窗），
+        // 再把读改写盘的磁盘 IO 放后台线程，避免在主线程连做三次读写盘造成卡顿/ANR。
+        for (HabitItem target : allHabits) {
             if (target.getId() == habitId) {
                 List<String> dates = new ArrayList<>(target.getCompletedDates());
                 if (add) {
@@ -1015,15 +1056,29 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 break;
             }
         }
-        repository.writeHabits(habits);
-        // 同步内存数据 + 刷新背后页面，但不关闭弹窗。
-        allHabits.clear();
-        allHabits.addAll(repository.readHabits());
         applyHabitFilters();
         updateSummarySection();
         updateCalendarPage();
         updateStatsPage();
         updateProfilePage();
+
+        // 后台持久化：读盘拿到全量列表，套用同样的改动后写回，避免覆盖其它字段。
+        runInBackground(() -> {
+            List<HabitItem> habits = repository.readHabits();
+            for (HabitItem target : habits) {
+                if (target.getId() == habitId) {
+                    List<String> dates = new ArrayList<>(target.getCompletedDates());
+                    if (add) {
+                        if (!dates.contains(date)) dates.add(date);
+                    } else {
+                        dates.remove(date);
+                    }
+                    target.setCompletedDates(dates);
+                    break;
+                }
+            }
+            repository.writeHabits(habits);
+        });
     }
 
     private void addStatRow(ViewGroup container, String label, String value) {
@@ -1082,7 +1137,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     @Override
     public void onToggleComplete(HabitItem item) {
         // 读写习惯文件放后台线程，完成后回主线程刷新（打卡是高频操作，避免每次卡主线程）
-        backgroundExecutor.execute(() -> {
+        runInBackground(() -> {
             List<HabitItem> habits = repository.readHabits();
             for (HabitItem target : habits) {
                 if (target.getId() == item.getId()) {
@@ -1097,7 +1152,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 }
             }
             repository.writeHabits(habits);
-            mainHandler.post(this::refreshDashboardData);
+            postToUi(this::refreshDashboardData);
         });
     }
 
@@ -1180,9 +1235,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     /** 在后台线程把二维码写入相册，避免阻塞主线程。 */
     private void saveQrToGallery(Bitmap qr, String title) {
         Toast.makeText(this, "正在保存到相册…", Toast.LENGTH_SHORT).show();
-        backgroundExecutor.execute(() -> {
+        runInBackground(() -> {
             Uri saved = repository.saveQrToGallery(qr, title);
-            mainHandler.post(() -> Toast.makeText(
+            postToUi(() -> Toast.makeText(
                     this,
                     saved != null ? "已保存到相册的 Streak 相册" : "保存失败，请重试",
                     Toast.LENGTH_SHORT
@@ -1197,17 +1252,22 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 .setMessage("确定删除“" + item.getTitle() + "”吗？")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("删除", (dialog, which) -> {
-                    List<HabitItem> habits = repository.readHabits();
-                    List<HabitItem> updated = new ArrayList<>();
-                    for (HabitItem target : habits) {
-                        if (target.getId() != item.getId()) {
-                            updated.add(target);
+                    // 读写 JSON、取消闹钟、删图片文件都放后台线程，避免阻塞主线程
+                    final long habitId = item.getId();
+                    final String imageUri = item.getImageUri();
+                    runInBackground(() -> {
+                        List<HabitItem> habits = repository.readHabits();
+                        List<HabitItem> updated = new ArrayList<>();
+                        for (HabitItem target : habits) {
+                            if (target.getId() != habitId) {
+                                updated.add(target);
+                            }
                         }
-                    }
-                    repository.writeHabits(updated);
-                    repository.cancelReminder(item.getId());
-                    repository.deletePhoto(item.getImageUri());
-                    refreshDashboardData();
+                        repository.writeHabits(updated);
+                        repository.cancelReminder(habitId);
+                        repository.deletePhoto(imageUri);
+                        postToUi(this::refreshDashboardData);
+                    });
                 })
                 .show();
     }
