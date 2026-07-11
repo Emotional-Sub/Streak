@@ -298,7 +298,6 @@ public class HabitEditorActivity extends AppCompatActivity {
             reminderTime = "20:00";
         }
 
-        List<HabitItem> habits = repository.readHabits();
         List<String> tags = new ArrayList<>();
         if (!tagsInput.isEmpty()) {
             tags.addAll(Arrays.asList(tagsInput.split(",")));
@@ -316,7 +315,9 @@ public class HabitEditorActivity extends AppCompatActivity {
         // 先存旧图路径，因为下面 setImageUri 会直接改写 originalHabit 自身
         String previousImageUri = originalHabit == null ? null : originalHabit.getImageUri();
         if (originalHabit == null) {
-            item.setId(generateUniqueId(habits));
+            // 仅新建时需读全量来给新 id 防撞（同一毫秒连续新建两条会撞时递增）；
+            // 编辑已有习惯走 upsert 覆盖同一 id，无需读全表。
+            item.setId(generateUniqueId(repository.readHabits()));
             item.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
             item.setCompletedDates(new ArrayList<>());
         }
@@ -333,19 +334,9 @@ public class HabitEditorActivity extends AppCompatActivity {
             repository.deletePhoto(previousImageUri);
         }
 
-        boolean replaced = false;
-        for (int i = 0; i < habits.size(); i++) {
-            if (habits.get(i).getId() == item.getId()) {
-                habits.set(i, item);
-                replaced = true;
-                break;
-            }
-        }
-        if (!replaced) {
-            habits.add(item);
-        }
-
-        repository.writeHabits(habits);
+        // 只 upsert 这一条（按 id 主键），不整表覆盖——避免并发下用本页的过期快照
+        // 抹掉其它习惯的改动（如后台补卡/提醒回执）。id 唯一性由 generateUniqueId 保证。
+        repository.saveHabit(item);
         repository.syncReminder(item);
         savedHabit = true;
         setResult(RESULT_OK, new Intent().putExtra(EXTRA_HABIT_ID, item.getId()));
