@@ -1,7 +1,16 @@
 package com.streak.app.model;
 
+import androidx.annotation.NonNull;
+import androidx.room.Entity;
+import androidx.room.Ignore;
+import androidx.room.PrimaryKey;
+
+@Entity(tableName = "accounts")
 public class UserAccount {
-    private String username;
+    // 用户名天然唯一，直接作主键（Room 主键不可为 null）。
+    @PrimaryKey
+    @NonNull
+    private String username = "";
     // 旧版本以明文存储密码；新版本改用 passwordHash + salt。
     // 保留 password 字段仅用于读取旧数据并在首次登录时迁移。
     private String password;
@@ -15,17 +24,20 @@ public class UserAccount {
     public UserAccount() {
     }
 
+    // Room 只能有一个非 @Ignore 构造器；这个便捷构造器仅供业务代码使用。
+    @Ignore
     public UserAccount(String username, String password) {
-        this.username = username;
+        this.username = username == null ? "" : username;
         this.password = password;
     }
 
+    @NonNull
     public String getUsername() {
         return username;
     }
 
     public void setUsername(String username) {
-        this.username = username;
+        this.username = username == null ? "" : username;
     }
 
     public String getDisplayName() {
