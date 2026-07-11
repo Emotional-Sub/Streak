@@ -1,9 +1,17 @@
 package com.streak.app.model;
 
+import androidx.annotation.NonNull;
+import androidx.room.Entity;
+import androidx.room.Ignore;
+import androidx.room.PrimaryKey;
+
 import java.util.ArrayList;
 import java.util.List;
 
+@Entity(tableName = "habits")
 public class HabitItem {
+    // id 是创建时的毫秒时间戳，天然唯一，不用 Room 自增。
+    @PrimaryKey
     private long id;
     private String title;
     private String content;
@@ -29,6 +37,7 @@ public class HabitItem {
         this.notes = new java.util.HashMap<>();
     }
 
+    @Ignore
     public HabitItem(long id, String title, String content, String reminderTime, String createdAt,
                      String imageUri, String category, List<String> tags,
                      List<String> completedDates, boolean reminderEnabled) {
@@ -141,6 +150,18 @@ public class HabitItem {
     /** true 表示按「每周 N 次」目标；false 表示「每天」。 */
     public boolean isWeeklyGoal() {
         return weeklyTarget > 0;
+    }
+
+    /** 字段级访问器，供 Room 持久化整个备注 Map（通过 Converters 序列化）。 */
+    public java.util.Map<String, String> getNotes() {
+        if (notes == null) {
+            notes = new java.util.HashMap<>();
+        }
+        return notes;
+    }
+
+    public void setNotes(java.util.Map<String, String> notes) {
+        this.notes = notes == null ? new java.util.HashMap<>() : notes;
     }
 
     /** 取某天的打卡备注，无则返回空串（不返回 null，便于调用方直接判空/展示）。 */
