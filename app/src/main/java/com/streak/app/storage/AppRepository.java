@@ -8,6 +8,9 @@ import androidx.core.content.FileProvider;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import com.streak.app.db.HabitDao;
+import com.streak.app.db.StreakDatabase;
+import com.streak.app.db.UserDao;
 import com.streak.app.model.CameraCaptureInfo;
 import com.streak.app.model.HabitBackup;
 import com.streak.app.model.HabitItem;
@@ -48,14 +51,20 @@ public class AppRepository {
     public static final int THEME_LIGHT = 1;
     public static final int THEME_DARK = 2;
 
+    // 存储初始化标记：JSON->Room 迁移 + 首启补种子只做一次
+    private static final String KEY_STORAGE_INITIALIZED = "storage_initialized";
+
     private final Context context;
     private final SharedPreferences preferences;
     private final Gson gson = new Gson();
+    // 旧 JSON 文件仅用于首启迁移与损坏文件归档；日常读写走 Room。
     private final File habitsFile;
     private final File accountsFile;
     private final File imageDir;
     private final File backupDir;
     private final ReminderScheduler reminderScheduler;
+    private final HabitDao habitDao;
+    private final UserDao userDao;
 
     public AppRepository(Context context) {
         this.context = context.getApplicationContext();
@@ -67,6 +76,95 @@ public class AppRepository {
         this.imageDir.mkdirs();
         this.backupDir.mkdirs();
         this.reminderScheduler = new ReminderScheduler(this.context);
+        StreakDatabase database = StreakDatabase.getInstance(this.context);
+        this.habitDao = database.habitDao();
+        this.userDao = database.userDao();
+        initializeStorageIfNeeded();
+    }
+
+    /**
+     * 存储首启初始化，只执行一次（幂等）。统一在此决策「迁移旧数据 vs 补种子」，
+     * 避免把补种子判据散落到 read 方法里被「表为空」被动触发——那样会让老用户
+     * 「刻意清零」的状态被误当成全新安装而凭空塞回种子习惯/默认账号。
+     *
+     * 规则：
+     * - 存在旧 JSON 文件（老用户升级）：迁移其内容进 Room（哪怕是空列表也照迁，
+     *   即尊重「用户曾删光」的真实状态，不补种子），迁移后归档旧文件。
+     * - 不存在旧 JSON 文件（全新安装）：写入种子习惯 + 默认演示账号 student/123456。
+     *
+     * 幂等保证：每步写入前用 count()==0 守卫，即便标记因进程被杀未落盘、下次重跑，
+     * 也不会把数据重复追加。全部成功后才置位标记。
+     */
+    private void initializeStorageIfNeeded() {
+        if (preferences.getBoolean(KEY_STORAGE_INITIALIZED, false)) {
+            return;
+        }
+        try {
+            boolean hadLegacyAccounts = accountsFile.exists();
+            boolean hadLegacyHabits = habitsFile.exists();
+
+            // 账号：老用户迁移旧文件；全新安装补默认账号。均以空表为前提防重复。
+            if (hadLegacyAccounts) {
+                List<UserAccount> legacyAccounts = readLegacyAccountsFromJson();
+                if (userDao.count() == 0 && !legacyAccounts.isEmpty()) {
+                    userDao.upsertAll(legacyAccounts);
+                }
+                archiveLegacyFile(accountsFile);
+            } else if (userDao.count() == 0) {
+                userDao.upsertAll(defaultAccounts());
+            }
+
+            // 习惯：老用户迁移旧文件（空列表也尊重，不补种子）；全新安装补种子。
+            if (hadLegacyHabits) {
+                List<HabitItem> legacyHabits = readLegacyHabitsFromJson();
+                if (habitDao.count() == 0 && !legacyHabits.isEmpty()) {
+                    habitDao.upsertAll(legacyHabits);
+                }
+                archiveLegacyFile(habitsFile);
+            } else if (habitDao.count() == 0) {
+                habitDao.upsertAll(seedHabits());
+            }
+        } catch (Exception ignored) {
+            // 初始化失败不阻断启动；标记不置位，下次重试（count 守卫保证不会重复）。
+            return;
+        }
+        preferences.edit().putBoolean(KEY_STORAGE_INITIALIZED, true).apply();
+    }
+
+    /** 读旧 habits.json（迁移专用），解析失败返回空列表，绝不覆盖。 */
+    private List<HabitItem> readLegacyHabitsFromJson() {
+        try (InputStreamReader reader = new InputStreamReader(
+                new FileInputStream(habitsFile), StandardCharsets.UTF_8)) {
+            Type type = new TypeToken<List<HabitItem>>() {}.getType();
+            List<HabitItem> habits = gson.fromJson(reader, type);
+            return habits == null ? new ArrayList<>() : habits;
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
+    /** 读旧 accounts.json（迁移专用），解析失败返回空列表。 */
+    private List<UserAccount> readLegacyAccountsFromJson() {
+        try (InputStreamReader reader = new InputStreamReader(
+                new FileInputStream(accountsFile), StandardCharsets.UTF_8)) {
+            Type type = new TypeToken<List<UserAccount>>() {}.getType();
+            List<UserAccount> accounts = gson.fromJson(reader, type);
+            return accounts == null ? new ArrayList<>() : accounts;
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
+    /** 迁移后把旧 JSON 文件改名归档，防止重复迁移。 */
+    private void archiveLegacyFile(File file) {
+        try {
+            if (file.exists()) {
+                File archived = new File(file.getParentFile(), file.getName() + ".migrated");
+                //noinspection ResultOfMethodCallIgnored
+                file.renameTo(archived);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     public boolean validateLogin(String username, String password) {
@@ -305,41 +403,37 @@ public class AppRepository {
     }
 
     public List<HabitItem> readHabits() {
-        if (!habitsFile.exists()) {
-            List<HabitItem> seed = seedHabits();
-            writeHabits(seed);
-            return seed;
-        }
-        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(habitsFile), StandardCharsets.UTF_8)) {
-            Type type = new TypeToken<List<HabitItem>>() {}.getType();
-            List<HabitItem> habits = gson.fromJson(reader, type);
-            if (habits == null) {
-                habits = seedHabits();
-                writeHabits(habits);
-            }
-            return habits;
-        } catch (Exception e) {
-            // 文件存在却解析失败：可能是写入中断/损坏。绝不用种子数据覆盖，
-            // 而是把损坏文件改名备份后返回空列表，避免用户打卡记录被永久清除。
-            backupCorruptFile(habitsFile);
-            return new ArrayList<>();
-        }
+        // 种子/迁移已在 initializeStorageIfNeeded() 首启统一处理，这里纯读取。
+        // 不再「表空补种子」——否则用户删光习惯后重进会凭空冒出种子习惯。
+        List<HabitItem> habits = habitDao.getAll();
+        return habits == null ? new ArrayList<>() : habits;
     }
 
     public void writeHabits(List<HabitItem> habits) {
-        try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(habitsFile, false), StandardCharsets.UTF_8)) {
-            gson.toJson(habits, writer);
-        } catch (Exception ignored) {
-        }
+        // 整体替换：清空后批量写入，事务保证一致性（等价旧的整文件覆盖语义）。
+        habitDao.replaceAll(habits == null ? new ArrayList<>() : habits);
     }
 
     public HabitItem findHabitById(long habitId) {
-        for (HabitItem item : readHabits()) {
-            if (item.getId() == habitId) {
-                return item;
-            }
+        return habitDao.findById(habitId);
+    }
+
+    /**
+     * 保存单个习惯（新增或更新，按 id 主键 upsert）。
+     * 相比整表 writeHabits，只动这一行，避免「读全量→改一条→写全量」在并发下
+     * 用过期快照覆盖掉其它习惯的改动（补卡、编辑、提醒回执可能同时发生）。
+     */
+    public void saveHabit(HabitItem habit) {
+        if (habit != null) {
+            habitDao.upsert(habit);
         }
-        return null;
+    }
+
+    /**
+     * 按 id 删除单个习惯。同样只动一行，不整表覆盖，避免并发丢更新。
+     */
+    public void deleteHabitById(long habitId) {
+        habitDao.deleteById(habitId);
     }
 
     public File exportBackup() {
@@ -779,37 +873,10 @@ public class AppRepository {
     }
 
     private List<UserAccount> loadAccounts() {
-        if (!accountsFile.exists()) {
-            List<UserAccount> defaults = defaultAccounts();
-            saveAccounts(defaults);
-            return defaults;
-        }
-        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(accountsFile), StandardCharsets.UTF_8)) {
-            Type type = new TypeToken<List<UserAccount>>() {}.getType();
-            List<UserAccount> accounts = gson.fromJson(reader, type);
-            return accounts == null ? new ArrayList<>() : accounts;
-        } catch (Exception e) {
-            // 文件存在却解析失败：先把损坏文件改名备份，绝不用默认账号覆盖，
-            // 否则用户全部账号会被永久清除并替换为 student/123456。
-            backupCorruptFile(accountsFile);
-            return new ArrayList<>();
-        }
-    }
-
-    /**
-     * 把解析失败的损坏文件改名为 <名>.corrupt-<时间戳>，保留现场以便排查/手动恢复，
-     * 同时让后续逻辑认为「文件不存在」从而走正常的默认初始化路径。
-     */
-    private void backupCorruptFile(File file) {
-        try {
-            if (file.exists()) {
-                File backup = new File(file.getParentFile(),
-                        file.getName() + ".corrupt-" + System.currentTimeMillis());
-                //noinspection ResultOfMethodCallIgnored
-                file.renameTo(backup);
-            }
-        } catch (Exception ignored) {
-        }
+        // 纯读取：默认账号的初始化已收敛进 initializeStorageIfNeeded()（仅全新安装触发一次），
+        // 这里不再「表空即补默认账号」，避免老用户删号后又被塞回 student、以及与迁移交错重复写入。
+        List<UserAccount> accounts = userDao.getAll();
+        return accounts == null ? new ArrayList<>() : accounts;
     }
 
     private List<UserAccount> defaultAccounts() {
@@ -822,10 +889,8 @@ public class AppRepository {
     }
 
     private void saveAccounts(List<UserAccount> accounts) {
-        try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(accountsFile, false), StandardCharsets.UTF_8)) {
-            gson.toJson(accounts, writer);
-        } catch (Exception ignored) {
-        }
+        // 整体替换：清空后批量写入，事务保证一致性（等价旧的整文件覆盖语义）。
+        userDao.replaceAll(accounts == null ? new ArrayList<>() : accounts);
     }
 
     private List<HabitItem> seedHabits() {
