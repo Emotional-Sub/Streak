@@ -1167,22 +1167,21 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         updateStatsPage();
         updateProfilePage();
 
-        // 后台持久化：读盘拿到全量列表，套用同样的改动后写回，避免覆盖其它字段。
+        // 后台持久化：只读改写这一条习惯（按 id），不整表覆盖，
+        // 避免与编辑/删除/提醒回执并发时用过期全量快照抹掉其它习惯的改动。
         runInBackground(() -> {
-            List<HabitItem> habits = repository.readHabits();
-            for (HabitItem target : habits) {
-                if (target.getId() == habitId) {
-                    List<String> dates = new ArrayList<>(target.getCompletedDates());
-                    if (add) {
-                        if (!dates.contains(date)) dates.add(date);
-                    } else {
-                        dates.remove(date);
-                    }
-                    target.setCompletedDates(dates);
-                    break;
-                }
+            HabitItem target = repository.findHabitById(habitId);
+            if (target == null) {
+                return;
             }
-            repository.writeHabits(habits);
+            List<String> dates = new ArrayList<>(target.getCompletedDates());
+            if (add) {
+                if (!dates.contains(date)) dates.add(date);
+            } else {
+                dates.remove(date);
+            }
+            target.setCompletedDates(dates);
+            repository.saveHabit(target);
         });
     }
 
@@ -1278,24 +1277,21 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
      */
     private void writeTodayCheckIn(long habitId, boolean add, String note) {
         runInBackground(() -> {
-            List<HabitItem> habits = repository.readHabits();
-            for (HabitItem target : habits) {
-                if (target.getId() == habitId) {
-                    List<String> completedDates = new ArrayList<>(target.getCompletedDates());
-                    if (add) {
-                        if (!completedDates.contains(today)) {
-                            completedDates.add(today);
-                        }
-                        target.setNote(today, note);
-                    } else {
-                        completedDates.remove(today);
-                        target.setNote(today, null); // 清除当天备注
+            HabitItem target = repository.findHabitById(habitId);
+            if (target != null) {
+                List<String> completedDates = new ArrayList<>(target.getCompletedDates());
+                if (add) {
+                    if (!completedDates.contains(today)) {
+                        completedDates.add(today);
                     }
-                    target.setCompletedDates(completedDates);
-                    break;
+                    target.setNote(today, note);
+                } else {
+                    completedDates.remove(today);
+                    target.setNote(today, null); // 清除当天备注
                 }
+                target.setCompletedDates(completedDates);
+                repository.saveHabit(target);
             }
-            repository.writeHabits(habits);
             postToUi(this::refreshDashboardData);
         });
     }
@@ -1414,14 +1410,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     final long habitId = item.getId();
                     final String imageUri = item.getImageUri();
                     runInBackground(() -> {
-                        List<HabitItem> habits = repository.readHabits();
-                        List<HabitItem> updated = new ArrayList<>();
-                        for (HabitItem target : habits) {
-                            if (target.getId() != habitId) {
-                                updated.add(target);
-                            }
-                        }
-                        repository.writeHabits(updated);
+                        repository.deleteHabitById(habitId);
                         repository.cancelReminder(habitId);
                         repository.deletePhoto(imageUri);
                         postToUi(this::refreshDashboardData);
