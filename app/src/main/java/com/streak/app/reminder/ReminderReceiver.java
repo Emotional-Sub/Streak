@@ -91,10 +91,9 @@ public class ReminderReceiver extends BroadcastReceiver {
     }
 
     /**
-     * 生成温和的提醒文案：
-     * - 昨天该打却没打（断签）：补救语气，鼓励别中断连续记录；
-     * - 今天已打卡：轻提示已完成；
-     * - 其余：日常提醒。
+     * 生成温和的提醒文案，按习惯周期口径（与列表/统计一致，滚动 7 天窗口）：
+     * - 每周 N 次型且本周已达标：报喜，不催打卡；未达标则显示进度；
+     * - 每天型：今天已打卡轻提示；昨天断签温和补救；否则按连续天数鼓励。
      */
     private String buildMessage(HabitItem habit, String fallbackContent) {
         if (habit == null) {
@@ -105,6 +104,19 @@ public class ReminderReceiver extends BroadcastReceiver {
         String yesterday = java.time.LocalDate.now().minusDays(1).toString();
         boolean doneToday = dates != null && dates.contains(today);
         boolean doneYesterday = dates != null && dates.contains(yesterday);
+
+        // 每周 N 次型：按本周（滚动 7 天）达标进度决定文案，不再逢天必催。
+        if (habit.isWeeklyGoal()) {
+            int done = com.streak.app.util.HabitUtils.weeklyDoneCount(habit);
+            int target = habit.getWeeklyTarget();
+            if (done >= target) {
+                return "本周目标已完成（" + done + "/" + target + "），做得很棒，放松一下也没关系 🎉";
+            }
+            if (doneToday) {
+                return "今天已打卡，本周进度 " + done + "/" + target + "，继续保持 👏";
+            }
+            return "本周还差 " + (target - done) + " 次达标（当前 " + done + "/" + target + "），今天来一笔吧 💪";
+        }
 
         if (doneToday) {
             return "今天已经打过卡啦，继续保持这份坚持 👏";
