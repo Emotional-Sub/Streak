@@ -51,9 +51,9 @@ public class PortraitCaptureActivity extends CaptureActivity {
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         try {
             startActivityForResult(
-                    Intent.createChooser(intent, "选择二维码图片"), REQ_PICK_QR_IMAGE);
+                    Intent.createChooser(intent, getString(R.string.qr_image_chooser_title)), REQ_PICK_QR_IMAGE);
         } catch (Exception e) {
-            Toast.makeText(this, "没有可用的相册应用", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_no_gallery_app, Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -67,7 +67,7 @@ public class PortraitCaptureActivity extends CaptureActivity {
         if (uri == null) {
             return;
         }
-        Toast.makeText(this, "正在识别二维码…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.toast_recognizing_qr, Toast.LENGTH_SHORT).show();
         backgroundExecutor.execute(() -> {
             String raw = QrDecoder.decodeFromUri(this, uri);
             mainHandler.post(() -> onImageDecoded(raw));
@@ -80,7 +80,7 @@ public class PortraitCaptureActivity extends CaptureActivity {
         }
         if (raw == null) {
             // 没扫到就留在相机界面，让用户继续扫或重选
-            Toast.makeText(this, "未识别到二维码，请换一张更清晰的图片", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_qr_not_recognized_pick_clearer, Toast.LENGTH_SHORT).show();
             return;
         }
         // 按 zxing 结果格式回填，使调用方与相机扫码走同一条解析路径
