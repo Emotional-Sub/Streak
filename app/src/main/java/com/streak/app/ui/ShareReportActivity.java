@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.streak.app.R;
 import com.streak.app.databinding.ActivityShareReportBinding;
 import com.streak.app.model.HabitItem;
 import com.streak.app.storage.AppRepository;
@@ -66,7 +67,7 @@ public class ShareReportActivity extends AppCompatActivity {
                     if (granted) {
                         doSaveToGallery();
                     } else {
-                        toast("需要存储权限才能保存到相册");
+                        toast(getString(R.string.toast_need_storage_permission_save));
                     }
                 });
 
@@ -124,7 +125,7 @@ public class ShareReportActivity extends AppCompatActivity {
             final Bitmap card = ShareCardGenerator.generate(data);
             post(() -> {
                 if (card == null) {
-                    toast("战报生成失败");
+                    toast(getString(R.string.toast_report_generate_failed));
                     return;
                 }
                 currentBitmap = card;
@@ -154,10 +155,10 @@ public class ShareReportActivity extends AppCompatActivity {
         if (card == null) {
             return;
         }
-        toast("正在保存到相册…");
+        toast(getString(R.string.toast_saving_to_album));
         bg.execute(() -> {
             Uri saved = repository.saveQrToGallery(card, "streak_report");
-            post(() -> toast(saved != null ? "已保存到相册的 Streak 相册" : "保存失败，请重试"));
+            post(() -> toast(getString(saved != null ? R.string.toast_saved_to_album : R.string.toast_save_failed_retry)));
         });
     }
 
@@ -170,14 +171,14 @@ public class ShareReportActivity extends AppCompatActivity {
             Uri uri = repository.cacheBitmapForShare(card, "streak_report");
             post(() -> {
                 if (uri == null) {
-                    toast("分享失败，请重试");
+                    toast(getString(R.string.toast_share_failed_retry));
                     return;
                 }
                 android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND)
                         .setType("image/png")
                         .putExtra(android.content.Intent.EXTRA_STREAM, uri)
                         .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(android.content.Intent.createChooser(share, "分享我的坚持战报"));
+                startActivity(android.content.Intent.createChooser(share, getString(R.string.share_chooser_report_title)));
             });
         });
     }
