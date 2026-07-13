@@ -94,18 +94,6 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private String displayedMonth;
     private File pendingExportFile;
 
-    private static final String[] SLOGANS = {
-            "把想坚持的事放进这里，每天轻轻点一下，进度就会被认真记住。",
-            "今天也是值得记录的一天，先完成，再完美。",
-            "微小的坚持，会在某天给你惊喜。",
-            "别小看每一次打卡，它们正在悄悄塑造你。",
-            "进度不必很快，只要别停下来。",
-            "种一棵树最好的时间是十年前，其次是现在。",
-            "你已经比昨天的自己更靠近目标一点了。",
-            "把大目标拆成今天能做到的一小步。",
-            "坚持一件小事，胜过三分钟热度的雄心。",
-            "每天一点点，攒起来就是了不起。"
-    };
 
     private ActivityResultLauncher<String> notificationPermissionLauncher;
     private ActivityResultLauncher<String> exportLauncher;
@@ -243,7 +231,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     if (uri == null) {
                         //noinspection ResultOfMethodCallIgnored
                         exportFile.delete();
-                        Toast.makeText(this, "已取消导出", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, R.string.toast_export_cancelled, Toast.LENGTH_SHORT).show();
                         return;
                     }
                     runInBackground(() -> {
@@ -252,7 +240,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                         exportFile.delete();
                         postToUi(() -> Toast.makeText(
                                 this,
-                                success ? "备份已导出（含照片），请到你选择的位置查看" : "保存失败，请重试",
+                                success ? getString(R.string.toast_export_success) : getString(R.string.toast_save_failed_retry),
                                 Toast.LENGTH_SHORT
                         ).show());
                     });
@@ -265,13 +253,13 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     if (uri == null) {
                         return;
                     }
-                    Toast.makeText(this, "正在导入恢复…", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, R.string.toast_importing, Toast.LENGTH_SHORT).show();
                     runInBackground(() -> {
                         boolean success = repository.importBackup(uri);
                         postToUi(() -> {
                             Toast.makeText(
                                     this,
-                                    success ? "导入成功，数据已恢复" : "导入失败，请确认选择的是本应用导出的备份",
+                                    success ? getString(R.string.toast_import_success) : getString(R.string.toast_import_failed),
                                     Toast.LENGTH_SHORT
                             ).show();
                             if (success && !TextUtils.isEmpty(repository.getCurrentUser())) {
@@ -332,7 +320,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     pendingSaveQrBitmap = null;
                     pendingSaveQrTitle = null;
                     if (!granted) {
-                        Toast.makeText(this, "需要存储权限才能保存到相册", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, R.string.toast_need_storage_permission_save, Toast.LENGTH_SHORT).show();
                         return;
                     }
                     if (qr != null) {
@@ -340,7 +328,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     } else {
                         // 授权对话框显示期间进程曾被系统回收，待存二维码已丢失。
                         // 明确提示重试，而非静默失败。
-                        Toast.makeText(this, "已授权，请重新点击保存到相册", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, R.string.toast_authorized_retry_save, Toast.LENGTH_SHORT).show();
                     }
                 }
         );
@@ -349,12 +337,12 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     /** 统一处理扫到/解出的原始内容：相机扫码与扫码界面内的相册识别共用。 */
     private void handleScannedContent(String raw) {
         if (raw == null) {
-            Toast.makeText(this, "未识别到二维码", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_qr_not_recognized, Toast.LENGTH_SHORT).show();
             return;
         }
         HabitQrCodec.Decoded decoded = HabitQrCodec.decode(raw);
         if (decoded == null) {
-            Toast.makeText(this, "这不是有效的习惯二维码", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_invalid_habit_qr, Toast.LENGTH_SHORT).show();
             return;
         }
         openEditorWithScan(decoded);
@@ -364,7 +352,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         com.journeyapps.barcodescanner.ScanOptions options =
                 new com.journeyapps.barcodescanner.ScanOptions();
         options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE);
-        options.setPrompt("对准同学分享的习惯二维码");
+        options.setPrompt(getString(R.string.scan_prompt_habit));
         options.setBeepEnabled(false);
         // 方向交给 PortraitCaptureActivity 在 manifest 中的 portrait 声明控制，
         // 这里必须设为 false，否则 CaptureManager 会按设备当前旋转自行锁定方向，
@@ -392,7 +380,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void setupDashboardViews() {
-        binding.toolbarDashboard.setTitle("习惯");
+        binding.toolbarDashboard.setTitle(getString(R.string.title_habits));
         binding.toolbarDashboard.inflateMenu(R.menu.menu_dashboard);
         binding.toolbarDashboard.setOnMenuItemClickListener(this::onToolbarMenuClicked);
 
@@ -445,7 +433,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         String password = getText(binding.etLoginPassword);
 
         if (username.isEmpty() || password.isEmpty()) {
-            Toast.makeText(this, "请输入用户名和密码", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_input_username_password, Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -463,9 +451,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     currentUser = username;
                     showDashboardPage();
                     refreshDashboardData();
-                    Toast.makeText(this, "登录成功", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, R.string.toast_login_success, Toast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(this, "用户名或密码错误", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, R.string.toast_login_failed, Toast.LENGTH_SHORT).show();
                 }
             });
         });
@@ -539,7 +527,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             postToUi(() -> {
                 allHabits.clear();
                 allHabits.addAll(habits);
-                binding.toolbarDashboard.setSubtitle("欢迎你，" + displayName);
+                binding.toolbarDashboard.setSubtitle(getString(R.string.greeting_welcome, displayName));
                 applyHabitFilters();
                 updateSummarySection();
                 updateCalendarPage();
@@ -567,11 +555,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
         habitsBinding.tvSummaryHabitCount.setText(String.valueOf(allHabits.size()));
         habitsBinding.tvSummaryTodayCount.setText(String.valueOf(completedToday));
-        habitsBinding.tvSummaryBestStreak.setText(bestStreak + "天");
+        habitsBinding.tvSummaryBestStreak.setText(getString(R.string.stat_streak_days_nospace, bestStreak));
     }
 
     private void refreshSlogan() {
-        habitsBinding.tvSummarySlogan.setText(SLOGANS[new java.util.Random().nextInt(SLOGANS.length)]);
+        habitsBinding.tvSummarySlogan.setText(getResources().getStringArray(R.array.motivational_quotes)[new java.util.Random().nextInt(getResources().getStringArray(R.array.motivational_quotes).length)]);
     }
 
     private void updateCalendarPage() {
@@ -635,7 +623,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             HabitItem item = ranking.get(i);
             ItemStatRowBinding rowBinding = ItemStatRowBinding.inflate(getLayoutInflater(), calendarBinding.layoutRankingContainer, false);
             rowBinding.tvStatLabel.setText((i + 1) + ". " + item.getTitle() + " · " + item.getCategory());
-            rowBinding.tvStatValue.setText(HabitUtils.currentStreak(item.getCompletedDates()) + " 天");
+            rowBinding.tvStatValue.setText(getString(R.string.stat_streak_days, HabitUtils.currentStreak(item.getCompletedDates())));
             calendarBinding.layoutRankingContainer.addView(rowBinding.getRoot());
         }
     }
@@ -658,7 +646,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         int longestBest = HabitUtils.bestLongestStreak(allHabits);
         tvStatsHabitCount.setText(String.valueOf(allHabits.size()));
         tvStatsTotalCheckIns.setText(String.valueOf(totalCheckIns));
-        tvStatsBestStreak.setText(currentBest + "天");
+        tvStatsBestStreak.setText(getString(R.string.stat_streak_days_nospace, currentBest));
         tvStatsCompletionRate.setText(HabitUtils.completionRate(allHabits) + "%");
 
         // 热力图数据：把所有习惯的去重打卡按日期聚合成计数
@@ -666,21 +654,21 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
         statsBinding.layoutOverviewStats.removeAllViews();
         // 当前连续 vs 历史最长
-        addStatRow(statsBinding.layoutOverviewStats, "当前连续 / 历史最长",
-                currentBest + " 天 / " + longestBest + " 天");
+        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_overview_current_vs_longest_label),
+                getString(R.string.stat_overview_current_vs_longest_value, currentBest, longestBest));
         // 周环比：本周 vs 上周
         int thisWeek = HabitUtils.weeklyCheckIns(allHabits);
         int lastWeek = HabitUtils.lastWeekCheckIns(allHabits);
-        addStatRow(statsBinding.layoutOverviewStats, "最近 7 天打卡次数",
+        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_last7_checkins_label),
                 thisWeek + "  " + weekTrendText(thisWeek, lastWeek));
-        addStatRow(statsBinding.layoutOverviewStats, "本月打卡次数", String.valueOf(HabitUtils.monthlyCheckIns(allHabits)));
+        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_month_checkins_label), String.valueOf(HabitUtils.monthlyCheckIns(allHabits)));
         int reminderCount = 0;
         for (HabitItem item : allHabits) {
             if (item.isReminderEnabled()) {
                 reminderCount++;
             }
         }
-        addStatRow(statsBinding.layoutOverviewStats, "开启提醒的习惯", String.valueOf(reminderCount));
+        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_reminder_enabled_label), String.valueOf(reminderCount));
 
         statsBinding.layoutCategoryStats.removeAllViews();
         if (allHabits.isEmpty()) {
@@ -730,12 +718,12 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private String weekTrendText(int thisWeek, int lastWeek) {
         int diff = thisWeek - lastWeek;
         if (diff > 0) {
-            return "(较上周 ↑" + diff + ")";
+            return getString(R.string.weekly_compare_up, diff);
         }
         if (diff < 0) {
-            return "(较上周 ↓" + (-diff) + ")";
+            return getString(R.string.weekly_compare_down, (-diff));
         }
-        return "(与上周持平)";
+        return getString(R.string.weekly_compare_equal);
     }
 
     private void updateCategoryPie() {
@@ -810,7 +798,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private void updateProfilePage() {
         UserAccount account = repository.getCurrentAccount();
         String displayName = resolveDisplayName();
-        String motto = "坚持不是一次爆发，而是很多次按时完成。";
+        String motto = getString(R.string.profile_motto);
         String avatarUri = null;
         if (account != null) {
             if (!TextUtils.isEmpty(account.getMotto())) {
@@ -858,20 +846,20 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         tvProfileHabitCount.setText(String.valueOf(allHabits.size()));
         tvProfileCheckInCount.setText(String.valueOf(totalCheckIns));
         tvProfileTodayCount.setText(String.valueOf(completedToday));
-        tvProfileBestStreak.setText(bestStreak + "天");
+        tvProfileBestStreak.setText(getString(R.string.stat_streak_days_nospace, bestStreak));
 
         profileBinding.layoutProfileInfo.removeAllViews();
-        addStatRow(profileBinding.layoutProfileInfo, "当前用户", displayName);
-        addStatRow(profileBinding.layoutProfileInfo, "今日日期", today);
-        addStatRow(profileBinding.layoutProfileInfo, "提醒已开启", reminderCount + " 项");
+        addStatRow(profileBinding.layoutProfileInfo, getString(R.string.profile_current_user_label), displayName);
+        addStatRow(profileBinding.layoutProfileInfo, getString(R.string.profile_today_date_label), today);
+        addStatRow(profileBinding.layoutProfileInfo, getString(R.string.profile_reminder_enabled_label), getString(R.string.count_items_suffix, reminderCount));
 
         if (bestHabit == null) {
             profileBinding.cardBestHabit.setVisibility(View.GONE);
         } else {
             profileBinding.cardBestHabit.setVisibility(View.VISIBLE);
             profileBinding.tvBestHabitTitle.setText(bestHabit.getTitle());
-            profileBinding.tvBestHabitCategory.setText("所属分类：" + bestHabit.getCategory());
-            profileBinding.tvBestHabitStreak.setText("连续打卡：" + HabitUtils.currentStreak(bestHabit.getCompletedDates()) + " 天");
+            profileBinding.tvBestHabitCategory.setText(getString(R.string.best_habit_category, bestHabit.getCategory()));
+            profileBinding.tvBestHabitStreak.setText(getString(R.string.best_habit_streak, HabitUtils.currentStreak(bestHabit.getCompletedDates())));
         }
 
         profileBinding.layoutProfileCategories.removeAllViews();
@@ -886,7 +874,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 }
             }
             if (count > 0) {
-                addStatRow(profileBinding.layoutProfileCategories, category, count + " 项");
+                addStatRow(profileBinding.layoutProfileCategories, category, getString(R.string.count_items_suffix, count));
             }
         }
 
@@ -927,13 +915,13 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void exportBackup() {
-        Toast.makeText(this, "正在打包备份…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.toast_packing_backup, Toast.LENGTH_SHORT).show();
         runInBackground(() -> {
             File exportFile = repository.exportBackup();
             postToUi(() -> {
                 // exportBackup 失败会返回 null（磁盘满/写盘异常），此时提示而非崩溃
                 if (exportFile == null) {
-                    Toast.makeText(this, "备份打包失败，请检查存储空间后重试", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, R.string.toast_backup_pack_failed, Toast.LENGTH_SHORT).show();
                     return;
                 }
                 pendingExportFile = exportFile;
@@ -944,25 +932,25 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     private void confirmImport() {
         new MaterialAlertDialogBuilder(this)
-                .setTitle("导入恢复")
-                .setMessage("导入会用备份中的习惯数据覆盖当前全部习惯和打卡记录，无法撤销。确定继续吗？")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("选择备份文件", (dialog, which) ->
+                .setTitle(R.string.dialog_import_title)
+                .setMessage(R.string.dialog_import_message)
+                .setNegativeButton(R.string.action_cancel, null)
+                .setPositiveButton(R.string.dialog_import_positive, (dialog, which) ->
                         importLauncher.launch(new String[]{"application/zip", "application/octet-stream"}))
                 .show();
     }
 
     private void confirmDeleteAccount() {
         new MaterialAlertDialogBuilder(this)
-                .setTitle("删除账号")
-                .setMessage("确定要删除账号吗？所有习惯、打卡记录和照片将被永久清除，无法恢复。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("删除", (dialog, which) -> {
+                .setTitle(R.string.dialog_delete_account_title)
+                .setMessage(R.string.dialog_delete_account_message)
+                .setNegativeButton(R.string.action_cancel, null)
+                .setPositiveButton(R.string.action_delete, (dialog, which) -> {
                     // 删号涉及读写 JSON、取消闹钟、删图片，放后台线程避免阻塞 UI
                     runInBackground(() -> {
                         repository.deleteCurrentAccountAndData();
                         postToUi(() -> {
-                            Toast.makeText(this, "账号已删除", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, R.string.toast_account_deleted, Toast.LENGTH_SHORT).show();
                             showLoginPage();
                         });
                     });
@@ -997,7 +985,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
         // 空白新建：把当前选中的分类带进编辑器，选了「生活」新建就默认「生活」；
         // 停在「全部」时不带分类，由编辑器用其自身默认值。
-        addTemplateRow(container, "空白新建", "从零开始，自定义全部内容。", () -> {
+        addTemplateRow(container, getString(R.string.template_blank_title), getString(R.string.template_blank_desc), () -> {
             dialog.dismiss();
             openBlankEditorWithSelectedCategory();
         });
@@ -1009,7 +997,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     && !selectedCategory.equals(template.getCategory())) {
                 continue;
             }
-            String desc = template.getCategory() + " · 提醒 " + template.getReminderTime();
+            String desc = getString(R.string.template_row_desc, template.getCategory(), template.getReminderTime());
             addTemplateRow(container, template.getTitle(), desc, () -> {
                 dialog.dismiss();
                 openEditorWithTemplate(template);
@@ -1018,8 +1006,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
         // 该分类没有预置模板时给个提示，避免只剩「空白新建」显得像出错
         if (shown == 0) {
-            addTemplateRow(container, "该分类暂无模板",
-                    "点上方「空白新建」自定义，或在习惯页切到「全部」查看所有模板。", () -> {});
+            addTemplateRow(container, getString(R.string.template_empty_category_title),
+                    getString(R.string.template_empty_category_desc), () -> {});
         }
 
         dialog.setContentView(sheetBinding.getRoot());
@@ -1085,25 +1073,25 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             }
         }
 
-        sheetBinding.tvSheetDate.setText(date + " 打卡详情");
+        sheetBinding.tvSheetDate.setText(getString(R.string.sheet_date_title, date));
         sheetBinding.tvSheetSummary.setText(
-                "已完成 " + completed.size() + " 项，未完成 " + pending.size() + " 项"
+                getString(R.string.sheet_summary, completed.size(), pending.size())
         );
 
         ViewGroup container = sheetBinding.layoutSheetContent;
         container.removeAllViews();
 
         if (completed.isEmpty() && pending.isEmpty()) {
-            addSheetSectionTitle(container, "当天还没有任何习惯记录。");
+            addSheetSectionTitle(container, getString(R.string.sheet_empty));
         } else {
             if (!pending.isEmpty()) {
-                addSheetSectionTitle(container, "未完成习惯");
+                addSheetSectionTitle(container, getString(R.string.sheet_section_pending));
                 for (HabitItem item : pending) {
                     addSheetHabitRow(container, sheetBinding, item, date, false, isPast);
                 }
             }
             if (!completed.isEmpty()) {
-                addSheetSectionTitle(container, "已完成习惯");
+                addSheetSectionTitle(container, getString(R.string.sheet_section_done));
                 for (HabitItem item : completed) {
                     addSheetHabitRow(container, sheetBinding, item, date, true, isPast);
                 }
@@ -1128,14 +1116,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         rowBinding.viewSheetDot.setBackgroundResource(
                 completed ? R.drawable.bg_status_done : R.drawable.bg_status_pending
         );
-        rowBinding.tvSheetHabitStatus.setText(completed ? "已完成" : "未完成");
+        rowBinding.tvSheetHabitStatus.setText(completed ? getString(R.string.status_completed) : getString(R.string.status_pending));
         rowBinding.tvSheetHabitStatus.setTextColor(
                 ContextCompat.getColor(this, completed ? R.color.streak_accent : R.color.streak_muted)
         );
 
         if (isPast) {
             rowBinding.btnSheetToggle.setVisibility(View.VISIBLE);
-            rowBinding.btnSheetToggle.setText(completed ? "撤销" : "补卡");
+            rowBinding.btnSheetToggle.setText(completed ? getString(R.string.action_undo) : getString(R.string.action_makeup));
             rowBinding.btnSheetToggle.setOnClickListener(v -> {
                 // 原地更新数据并重建弹窗内容，支持连续补卡，不关闭弹窗。
                 toggleDateCheckIn(item.getId(), date, !completed);
@@ -1269,7 +1257,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     /** 打卡时的可选备注/心情输入框：留空或「跳过」直接完成，不强制。 */
     private void promptCheckInNote(HabitItem item) {
         final android.widget.EditText input = new android.widget.EditText(this);
-        input.setHint("记一句今日心情 / 备注（可留空）");
+        input.setHint(getString(R.string.checkin_note_hint));
         input.setMinLines(2);
         input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
@@ -1280,10 +1268,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         wrap.addView(input);
 
         new MaterialAlertDialogBuilder(this)
-                .setTitle("完成打卡：" + item.getTitle())
+                .setTitle(getString(R.string.dialog_checkin_title, item.getTitle()))
                 .setView(wrap)
-                .setNegativeButton("跳过", (d, w) -> writeTodayCheckIn(item.getId(), true, null))
-                .setPositiveButton("保存", (d, w) ->
+                .setNegativeButton(R.string.action_skip, (d, w) -> writeTodayCheckIn(item.getId(), true, null))
+                .setPositiveButton(R.string.action_save, (d, w) ->
                         writeTodayCheckIn(item.getId(), true, input.getText().toString()))
                 .show();
     }
@@ -1333,7 +1321,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         int sizePx = (int) (240 * getResources().getDisplayMetrics().density);
         Bitmap qr = QrGenerator.generate(HabitQrCodec.encode(item), sizePx);
         if (qr == null) {
-            Toast.makeText(this, "二维码生成失败", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_qr_generate_failed, Toast.LENGTH_SHORT).show();
             return;
         }
         sheetBinding.ivQrImage.setImageBitmap(qr);
@@ -1366,12 +1354,12 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     /** 在后台线程把二维码写入相册，避免阻塞主线程。 */
     private void saveQrToGallery(Bitmap qr, String title) {
-        Toast.makeText(this, "正在保存到相册…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.toast_saving_to_album, Toast.LENGTH_SHORT).show();
         runInBackground(() -> {
             Uri saved = repository.saveQrToGallery(qr, title);
             postToUi(() -> Toast.makeText(
                     this,
-                    saved != null ? "已保存到相册的 Streak 相册" : "保存失败，请重试",
+                    saved != null ? getString(R.string.toast_saved_to_album) : getString(R.string.toast_save_failed_retry),
                     Toast.LENGTH_SHORT
             ).show());
         });
@@ -1383,8 +1371,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private void showThemeModeChooser() {
         int current = repository.getThemeMode();
         new MaterialAlertDialogBuilder(this)
-                .setTitle("深色模式")
-                .setSingleChoiceItems(THEME_LABELS, current, (dialog, which) -> {
+                .setTitle(R.string.dialog_dark_mode_title)
+                .setSingleChoiceItems(getResources().getStringArray(R.array.theme_options), current, (dialog, which) -> {
                     dialog.dismiss();
                     if (which != repository.getThemeMode()) {
                         repository.setThemeMode(which);
@@ -1393,14 +1381,15 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                         StreakApp.applyTheme(which);
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(R.string.action_cancel, null)
                 .show();
     }
 
     private void updateThemeModeButtonText() {
         int mode = repository.getThemeMode();
-        String label = mode >= 0 && mode < THEME_LABELS.length ? THEME_LABELS[mode] : THEME_LABELS[0];
-        profileBinding.btnThemeMode.setText("深色模式：" + label);
+        String[] themeLabels = getResources().getStringArray(R.array.theme_options);
+        String label = mode >= 0 && mode < themeLabels.length ? themeLabels[mode] : themeLabels[0];
+        profileBinding.btnThemeMode.setText(getString(R.string.btn_theme_mode_label, label));
     }
 
     /**
@@ -1409,7 +1398,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     /** 打开战报全屏预览页（可切维度、预览、保存/分享）。 */
     private void shareAchievementCard() {
         if (allHabits.isEmpty()) {
-            Toast.makeText(this, "还没有习惯，先去创建一个吧", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_no_habit_create_first, Toast.LENGTH_SHORT).show();
             return;
         }
         Intent intent = new Intent(this, ShareReportActivity.class)
@@ -1420,10 +1409,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     @Override
     public void onDelete(HabitItem item) {
         new MaterialAlertDialogBuilder(this)
-                .setTitle("删除习惯")
-                .setMessage("确定删除“" + item.getTitle() + "”吗？")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("删除", (dialog, which) -> {
+                .setTitle(R.string.dialog_delete_habit_title)
+                .setMessage(getString(R.string.dialog_delete_habit_message, item.getTitle()))
+                .setNegativeButton(R.string.action_cancel, null)
+                .setPositiveButton(R.string.action_delete, (dialog, which) -> {
                     // 读写 JSON、取消闹钟、删图片文件都放后台线程，避免阻塞主线程
                     final long habitId = item.getId();
                     final String imageUri = item.getImageUri();
