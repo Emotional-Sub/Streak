@@ -9,6 +9,7 @@ import androidx.activity.EdgeToEdge;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.streak.app.R;
 import com.streak.app.databinding.ActivityRegisterBinding;
 import com.streak.app.storage.AppRepository;
 
@@ -37,11 +38,11 @@ public class RegisterActivity extends AppCompatActivity {
         String confirm = text(binding.etRegisterConfirmPassword);
 
         if (username.isEmpty() || password.isEmpty()) {
-            showError("用户名和密码不能为空");
+            showError(getString(R.string.toast_username_password_empty));
             return;
         }
         if (!TextUtils.equals(password, confirm)) {
-            showError("两次输入的密码不一致");
+            showError(getString(R.string.toast_password_mismatch));
             return;
         }
 
@@ -51,7 +52,7 @@ public class RegisterActivity extends AppCompatActivity {
             return;
         }
 
-        Toast.makeText(this, "注册成功，请登录", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.toast_register_success, Toast.LENGTH_SHORT).show();
         Intent result = new Intent().putExtra(RESULT_USERNAME, username);
         setResult(RESULT_OK, result);
         finish();
