@@ -46,10 +46,11 @@ public class StreakWidgetProvider extends AppWidgetProvider {
             try {
                 AppRepository repository = new AppRepository(appContext);
                 List<HabitItem> habits = repository.readHabits();
-                String today = HabitUtils.today();
                 total = habits.size();
+                // 「已完成」按习惯周期口径（与列表/统计一致）：每天型看今天，
+                // 每周 N 次型看滚动 7 天是否满 N 次——已达标的每周型也计入完成。
                 for (HabitItem item : habits) {
-                    if (item.getCompletedDates() != null && item.getCompletedDates().contains(today)) {
+                    if (HabitUtils.isCompletedForPeriod(item)) {
                         done++;
                     }
                 }
