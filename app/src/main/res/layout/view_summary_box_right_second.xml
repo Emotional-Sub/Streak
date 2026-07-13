@@ -17,7 +17,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="今日完成率"
+        android:text="@string/stat_completion_rate_today"
         android:textColor="@color/streak_text_faint"
         android:textSize="12sp" />
 </LinearLayout>
