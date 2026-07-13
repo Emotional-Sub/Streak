@@ -4,16 +4,16 @@
     <item
         android:id="@+id/action_export"
         android:icon="@drawable/ic_export"
-        android:title="导出备份"
+        android:title="@string/menu_export_backup"
         app:showAsAction="ifRoom" />
     <item
         android:id="@+id/action_import"
         android:icon="@android:drawable/stat_sys_download_done"
-        android:title="导入恢复"
+        android:title="@string/dialog_import_title"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_logout"
         android:icon="@drawable/ic_logout"
-        android:title="退出"
+        android:title="@string/menu_logout"
         app:showAsAction="ifRoom" />
 </menu>
