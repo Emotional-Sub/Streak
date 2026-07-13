@@ -1,4 +1,322 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Streak</string>
+
+    <!-- ================= 通用 / 动作 ================= -->
+    <string name="action_cancel">取消</string>
+    <string name="action_delete">删除</string>
+    <string name="action_save">保存</string>
+    <string name="action_edit">编辑</string>
+    <string name="action_share">分享</string>
+    <string name="action_skip">跳过</string>
+    <string name="action_undo">撤销</string>
+    <string name="action_makeup">补卡</string>
+    <string name="action_take_photo">拍照</string>
+    <string name="action_gallery">相册</string>
+    <string name="action_save_to_gallery">保存到相册</string>
+    <string name="cd_back">返回</string>
+    <string name="cd_check_in">打卡</string>
+    <string name="cd_checked_in">已打卡</string>
+
+    <!-- ================= 通用 Toast ================= -->
+    <string name="toast_save_failed_retry">保存失败，请重试</string>
+    <string name="toast_saved_to_album">已保存到相册的 Streak 相册</string>
+    <string name="toast_saving_to_album">正在保存到相册…</string>
+    <string name="toast_need_storage_permission_save">需要存储权限才能保存到相册</string>
+    <string name="toast_camera_permission_required">需要相机权限才能拍照</string>
+    <string name="toast_password_mismatch">两次输入的密码不一致</string>
+
+    <!-- ================= 登录 / activity_main ================= -->
+    <string name="login_app_name">每日打卡</string>
+    <string name="login_slogan">记录习惯，坚持成长</string>
+    <string name="login_remember_username">记住用户名</string>
+    <string name="login_submit">登录</string>
+    <string name="login_import_backup">导入备份恢复</string>
+    <string name="login_demo_hint">演示账号已在上方给出</string>
+    <string name="hint_username">用户名</string>
+    <string name="hint_password">密码</string>
+    <string name="hint_confirm_password">确认密码</string>
+    <string name="register_title_short">注册账号</string>
+    <string name="dashboard_title">习惯</string>
+    <string name="title_habits">习惯</string>
+    <string name="cd_scan_add_habit">扫码添加同款</string>
+    <string name="title_add_habit">新增习惯</string>
+    <string name="toast_input_username_password">请输入用户名和密码</string>
+    <string name="toast_login_success">登录成功</string>
+    <string name="toast_login_failed">用户名或密码错误</string>
+    <string name="greeting_welcome">欢迎你，%1$s</string>
+
+    <!-- ================= 注册 ================= -->
+    <string name="register_heading">创建你的账号</string>
+    <string name="register_subtitle">设置用户名和密码，开始记录每天的坚持。</string>
+    <string name="register_submit">注册并返回登录</string>
+    <string name="toast_username_password_empty">用户名和密码不能为空</string>
+    <string name="toast_register_success">注册成功，请登录</string>
+
+    <!-- ================= 编辑资料 ================= -->
+    <string name="profile_edit_title">编辑资料</string>
+    <string name="profile_remove_avatar">移除头像</string>
+    <string name="profile_pick_default_avatar">或选择一个默认头像</string>
+    <string name="hint_username_login">用户名（登录用）</string>
+    <string name="hint_display_name">昵称（显示名）</string>
+    <string name="hint_motto">个性签名</string>
+    <string name="profile_change_password_hint">修改密码（留空则不修改）</string>
+    <string name="hint_new_password">新密码</string>
+    <string name="hint_confirm_new_password">确认新密码</string>
+    <string name="profile_save">保存资料</string>
+    <string name="toast_avatar_pick_failed">头像选择失败</string>
+    <string name="toast_username_empty">用户名不能为空</string>
+    <string name="toast_profile_saved">资料已保存</string>
+
+    <!-- ================= 扫码 / 二维码 ================= -->
+    <string name="capture_title">扫码加同款</string>
+    <string name="qr_share_title">分享这个习惯</string>
+    <string name="cd_habit_qr">习惯二维码</string>
+    <string name="qr_share_hint">让同学在“新增习惯 → 扫码添加同款”里扫描即可加同款习惯（不含照片）。</string>
+    <string name="scan_prompt_habit">对准同学分享的习惯二维码</string>
+    <string name="toast_qr_not_recognized">未识别到二维码</string>
+    <string name="toast_invalid_habit_qr">这不是有效的习惯二维码</string>
+    <string name="toast_qr_generate_failed">二维码生成失败</string>
+    <string name="qr_image_chooser_title">选择二维码图片</string>
+    <string name="toast_no_gallery_app">没有可用的相册应用</string>
+    <string name="toast_recognizing_qr">正在识别二维码…</string>
+    <string name="toast_qr_not_recognized_pick_clearer">未识别到二维码，请换一张更清晰的图片</string>
+
+    <!-- ================= 小组件 ================= -->
+    <string name="widget_title">今日打卡</string>
+    <string name="widget_hint">已完成 / 习惯数</string>
+    <string name="widget_action">去打卡</string>
+    <string name="widget_all_done">今日全勤 🎉</string>
+    <string name="widget_go_checkin">去打卡</string>
+
+    <!-- ================= 统计 / 概览 ================= -->
+    <string name="stat_total_check_ins">累计打卡</string>
+    <string name="stat_completion_rate_today">今日完成率</string>
+    <string name="stat_habit_total">习惯总数</string>
+    <string name="stat_streak_days_zero">0天</string>
+    <string name="stat_best_streak">最长连续</string>
+    <string name="stat_today_checked">今日已打卡</string>
+    <string name="stat_streak_days">%1$d 天</string>
+    <string name="stat_streak_days_nospace">%1$d天</string>
+    <string name="stat_overview_current_vs_longest_label">当前连续 / 历史最长</string>
+    <string name="stat_overview_current_vs_longest_value">%1$d 天 / %2$d 天</string>
+    <string name="stat_last7_checkins_label">最近 7 天打卡次数</string>
+    <string name="stat_month_checkins_label">本月打卡次数</string>
+    <string name="stat_reminder_enabled_label">开启提醒的习惯</string>
+    <string name="weekly_compare_up">(较上周 ↑%1$d)</string>
+    <string name="weekly_compare_down">(较上周 ↓%1$d)</string>
+    <string name="weekly_compare_equal">(与上周持平)</string>
+    <string name="count_items_suffix">%1$d 项</string>
+
+    <!-- ================= 个人主页 ================= -->
+    <string name="profile_stat_manage">管理习惯</string>
+    <string name="profile_stat_today_done">今日完成</string>
+    <string name="profile_motto">坚持不是一次爆发，而是很多次按时完成。</string>
+    <string name="profile_motto_default">坚持不是一次爆发，而是很多次按时完成。</string>
+    <string name="profile_view_all">查看全部 ›</string>
+    <string name="profile_account_info_title">账号信息</string>
+    <string name="profile_best_habit_title">当前最佳习惯</string>
+    <string name="profile_best_habit_category_placeholder">所属分类：运动</string>
+    <string name="profile_best_habit_streak_placeholder">连续打卡：0 天</string>
+    <string name="profile_current_user_label">当前用户</string>
+    <string name="profile_today_date_label">今日日期</string>
+    <string name="profile_reminder_enabled_label">提醒已开启</string>
+    <string name="best_habit_category">所属分类：%1$s</string>
+    <string name="best_habit_streak">连续打卡：%1$d 天</string>
+    <string name="profile_guide_title">使用说明</string>
+    <string name="profile_guide_line1">1. 在“习惯”页新增、编辑和删除每日打卡项目。</string>
+    <string name="profile_guide_line2">2. 点击习惯卡片右侧按钮可切换今日打卡状态。</string>
+    <string name="profile_guide_line3">3. 在编辑页可以选择分类、设置提醒、拍照或从相册选图。</string>
+    <string name="profile_guide_line4">4. 右上角导出按钮可生成 ZIP 备份（含照片），导入可恢复。</string>
+    <string name="profile_theme_mode">深色模式：跟随系统</string>
+    <string name="profile_share_report">生成我的坚持战报</string>
+    <string name="profile_delete_account">删除账号</string>
+
+    <!-- ================= 习惯列表 / 卡片 ================= -->
+    <string name="habits_overview_title">今日概览</string>
+    <string name="habits_overview_slogan">把想坚持的事放进这里，每天轻轻点一下，进度就会被认真记住。</string>
+    <string name="hint_search_habits">搜索习惯</string>
+    <string name="habits_empty">还没有匹配的习惯</string>
+    <string name="habit_title_placeholder">习惯名称</string>
+    <string name="habit_title_sample">晨跑打卡</string>
+    <string name="habit_created_at_placeholder">创建时间：2026-06-18 16:00</string>
+    <string name="habit_content_sample">坚持晨跑 30 分钟，结束后做 5 分钟拉伸。</string>
+    <string name="habit_meta_placeholder">运动 · 提醒 06:30 · 已打卡 0 次 · 连续 0 天</string>
+    <string name="habit_tags_sample">#晨练 #有氧</string>
+    <string name="habit_section_pending">未打卡</string>
+    <string name="group_pending">未打卡 · %1$d</string>
+    <string name="group_done">已打卡 · %1$d</string>
+    <string name="habit_created_at">创建时间：%1$s</string>
+    <string name="habit_goal_daily">每天</string>
+    <string name="habit_goal_weekly">每周 %1$d 次（本周 %2$d/%1$d）</string>
+    <string name="habit_meta_line">%1$s · %2$s · 提醒 %3$s · 已打卡 %4$d 次 · 连续 %5$d 天</string>
+
+    <!-- ================= 习惯编辑 ================= -->
+    <string name="hint_editor_title">标题</string>
+    <string name="hint_editor_content">内容</string>
+    <string name="hint_editor_category">分类</string>
+    <string name="hint_editor_goal">目标周期</string>
+    <string name="hint_editor_tags">标签（多个标签用逗号分隔）</string>
+    <string name="hint_editor_reminder_time">提醒时间</string>
+    <string name="editor_switch_reminder">开启提醒</string>
+    <string name="editor_remove_photo">移除图片</string>
+    <string name="editor_save">保存</string>
+    <string name="editor_title_new">新增习惯</string>
+    <string name="editor_title_edit">编辑习惯</string>
+    <string name="toast_image_pick_failed">图片选择失败</string>
+    <string name="toast_fill_title_content">请先填写标题和内容</string>
+
+    <!-- ================= 模板选择 ================= -->
+    <string name="template_chooser_subtitle">选择一个模板快速开始，或从空白创建。</string>
+    <string name="template_title_placeholder">模板名称</string>
+    <string name="template_desc_placeholder">模板描述</string>
+    <string name="template_blank_title">空白新建</string>
+    <string name="template_blank_desc">从零开始，自定义全部内容。</string>
+    <string name="template_row_desc">%1$s · 提醒 %2$s</string>
+    <string name="template_empty_category_title">该分类暂无模板</string>
+    <string name="template_empty_category_desc">点上方「空白新建」自定义，或在习惯页切到「全部」查看所有模板。</string>
+
+    <!-- ================= 日历 ================= -->
+    <string name="calendar_month_placeholder">2026 年 06 月</string>
+    <string name="calendar_month_pattern">yyyy 年 MM 月</string>
+    <string name="calendar_today">今天</string>
+    <string name="calendar_hint">紫色表示今天，绿色表示当天至少有一项习惯完成打卡。点击日期可查看详情。</string>
+    <string name="weekday_sun">日</string>
+    <string name="weekday_mon">一</string>
+    <string name="weekday_tue">二</string>
+    <string name="weekday_wed">三</string>
+    <string name="weekday_thu">四</string>
+    <string name="weekday_fri">五</string>
+    <string name="weekday_sat">六</string>
+    <string name="calendar_ranking_title">连续打卡排行</string>
+    <string name="calendar_empty">暂无日历数据</string>
+
+    <!-- ================= 日期详情 sheet ================= -->
+    <string name="sheet_calendar_detail_title">2026-06-18 打卡详情</string>
+    <string name="sheet_calendar_detail_summary">已完成 0 项，未完成 0 项</string>
+    <string name="sheet_date_title">%1$s 打卡详情</string>
+    <string name="sheet_summary">已完成 %1$d 项，未完成 %2$d 项</string>
+    <string name="sheet_empty">当天还没有任何习惯记录。</string>
+    <string name="sheet_section_pending">未完成习惯</string>
+    <string name="sheet_section_done">已完成习惯</string>
+    <string name="sheet_habit_status_done">已完成</string>
+    <string name="sheet_habit_makeup">补卡</string>
+    <string name="status_completed">已完成</string>
+    <string name="status_pending">未完成</string>
+    <string name="checkin_note_hint">记一句今日心情 / 备注（可留空）</string>
+    <string name="dialog_checkin_title">完成打卡：%1$s</string>
+
+    <!-- ================= 统计页 ================= -->
+    <string name="stats_overview_title">统计总览</string>
+    <string name="stats_overview_subtitle">这里可以快速看到整体坚持情况和各类习惯的完成表现。</string>
+    <string name="stats_heatmap_title">打卡热力图</string>
+    <string name="stats_heatmap_subtitle">最近约 4 个月，颜色越深当天打卡越多</string>
+    <string name="heatmap_legend_less">少</string>
+    <string name="heatmap_legend_more">多</string>
+    <string name="stats_checkin_overview_title">打卡总览</string>
+    <string name="stats_category_distribution_title">习惯分类分布</string>
+    <string name="stats_category_distribution_subtitle">各分类下的习惯数量占比</string>
+    <string name="stats_empty">暂无统计数据</string>
+    <string name="stat_row_label_placeholder">标签</string>
+    <string name="stat_row_value_placeholder">值</string>
+
+    <!-- ================= 勋章墙 ================= -->
+    <string name="badge_wall_title">勋章墙</string>
+    <string name="badge_wall_summary_placeholder">已点亮 0 / 0 枚勋章</string>
+    <string name="badge_wall_summary">已点亮 %1$d / %2$d 枚勋章</string>
+    <string name="badge_first_name">启程</string>
+    <string name="badge_empty">还没有获得勋章，坚持打卡来点亮它们吧。</string>
+    <string name="badge_lit_suffix">（已点亮）</string>
+    <string name="badge_unlit_suffix">（未点亮）</string>
+
+    <!-- ================= 战报 ================= -->
+    <string name="share_report_title">坚持战报</string>
+    <string name="report_scope_total">总成就</string>
+    <string name="report_scope_7">近 7 天</string>
+    <string name="report_scope_30">近 30 天</string>
+    <string name="cd_report_preview">战报预览</string>
+    <string name="toast_report_generate_failed">战报生成失败</string>
+    <string name="toast_share_failed_retry">分享失败，请重试</string>
+    <string name="share_chooser_report_title">分享我的坚持战报</string>
+    <string name="report_default_display_name">我</string>
+    <string name="report_brand_title">Streak · 我的坚持</string>
+    <string name="report_slogan_bottom">每天一点点，攒起来就是了不起</string>
+    <string name="report_subtitle_default">%1$s 的打卡战报</string>
+    <string name="report_subtitle_scoped">%1$s · %2$s</string>
+    <string name="report_scope_total_subtitle">总成就</string>
+    <string name="report_scope_7_subtitle">近 7 天回顾</string>
+    <string name="report_scope_30_subtitle">近 30 天回顾</string>
+    <string name="report_main_label_total">最长连续打卡（天）</string>
+    <string name="report_main_label_7">近 7 天打卡（次）</string>
+    <string name="report_main_label_30">近 30 天打卡（次）</string>
+    <string name="report_metric_streak_days">坚持天数</string>
+    <string name="report_metric_current_streak">当前连续</string>
+    <string name="report_metric_total_checkins">累计打卡</string>
+    <string name="report_metric_unlocked_badges">解锁勋章</string>
+
+    <!-- ================= 备份 / 导入 / 账号 ================= -->
+    <string name="toast_export_cancelled">已取消导出</string>
+    <string name="toast_export_success">备份已导出（含照片），请到你选择的位置查看</string>
+    <string name="toast_importing">正在导入恢复…</string>
+    <string name="toast_import_success">导入成功，数据已恢复</string>
+    <string name="toast_import_failed">导入失败，请确认选择的是本应用导出的备份</string>
+    <string name="toast_authorized_retry_save">已授权，请重新点击保存到相册</string>
+    <string name="toast_packing_backup">正在打包备份…</string>
+    <string name="toast_backup_pack_failed">备份打包失败，请检查存储空间后重试</string>
+    <string name="dialog_import_title">导入恢复</string>
+    <string name="dialog_import_message">导入会用备份中的习惯数据覆盖当前全部习惯和打卡记录，无法撤销。确定继续吗？</string>
+    <string name="dialog_import_positive">选择备份文件</string>
+    <string name="dialog_delete_account_title">删除账号</string>
+    <string name="dialog_delete_account_message">确定要删除账号吗？所有习惯、打卡记录和照片将被永久清除，无法恢复。</string>
+    <string name="toast_account_deleted">账号已删除</string>
+    <string name="toast_no_habit_create_first">还没有习惯，先去创建一个吧</string>
+    <string name="dialog_delete_habit_title">删除习惯</string>
+    <string name="dialog_delete_habit_message">确定删除“%1$s”吗？</string>
+
+    <!-- ================= 主题 ================= -->
+    <string name="dialog_dark_mode_title">深色模式</string>
+    <string name="btn_theme_mode_label">深色模式：%1$s</string>
+
+    <!-- ================= 通知 / 提醒 ================= -->
+    <string name="notif_channel_name">习惯提醒</string>
+    <string name="notif_channel_desc">每日打卡提醒通知</string>
+    <string name="notif_title_default">习惯提醒</string>
+    <string name="notif_title_with_habit">习惯提醒：%1$s</string>
+    <string name="reminder_default">该去完成今天的打卡了。</string>
+    <string name="reminder_weekly_done">本周目标已完成（%1$d/%2$d），做得很棒，放松一下也没关系 🎉</string>
+    <string name="reminder_weekly_today_done">今天已打卡，本周进度 %1$d/%2$d，继续保持 👏</string>
+    <string name="reminder_weekly_progress">本周还差 %1$d 次达标（当前 %2$d/%3$d），今天来一笔吧 💪</string>
+    <string name="reminder_daily_today_done">今天已经打过卡啦，继续保持这份坚持 👏</string>
+    <string name="reminder_daily_missed_yesterday">昨天断签了，别灰心，今天补上一笔，重新开始也很棒 💪</string>
+    <string name="reminder_daily_streak">已经连续坚持 %1$d 天，今天打卡别让它中断哦 🔥</string>
+
+    <!-- ================= 数组 ================= -->
+    <string-array name="theme_options">
+        <item>跟随系统</item>
+        <item>浅色</item>
+        <item>深色</item>
+    </string-array>
+
+    <string-array name="weekly_target_options">
+        <item>每天</item>
+        <item>每周 1 次</item>
+        <item>每周 2 次</item>
+        <item>每周 3 次</item>
+        <item>每周 4 次</item>
+        <item>每周 5 次</item>
+        <item>每周 6 次</item>
+    </string-array>
+
+    <string-array name="motivational_quotes">
+        <item>把想坚持的事放进这里，每天轻轻点一下，进度就会被认真记住。</item>
+        <item>今天也是值得记录的一天，先完成，再完美。</item>
+        <item>微小的坚持，会在某天给你惊喜。</item>
+        <item>别小看每一次打卡，它们正在悄悄塑造你。</item>
+        <item>进度不必很快，只要别停下来。</item>
+        <item>种一棵树最好的时间是十年前，其次是现在。</item>
+        <item>你已经比昨天的自己更靠近目标一点了。</item>
+        <item>把大目标拆成今天能做到的一小步。</item>
+        <item>坚持一件小事，胜过三分钟热度的雄心。</item>
+        <item>每天一点点，攒起来就是了不起。</item>
+    </string-array>
 </resources>
