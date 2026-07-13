@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  数据抽取规则（Android 12+）：安全整改——账号凭据、习惯打卡等均为本地敏感数据，
+  一律排除云备份与设备间直传，避免明文/哈希凭据随备份外流。
+  与 allowBackup="false" 双保险：allowBackup 关闭云备份/adb backup，
+  本文件同时挡住 Android 12+ 的设备间直传（device-to-device）。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>
