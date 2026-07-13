@@ -68,7 +68,7 @@
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="编辑"
+                        android:text="@string/action_edit"
                         android:textAllCaps="false" />
                 </LinearLayout>
 
@@ -77,7 +77,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="坚持不是一次爆发，而是很多次按时完成。"
+                    android:text="@string/profile_motto_default"
                     android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
@@ -135,7 +135,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="勋章墙"
+                        android:text="@string/badge_wall_title"
                         android:textColor="@color/streak_text_primary"
                         android:textSize="18sp"
                         android:textStyle="bold" />
@@ -152,7 +152,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
-                        android:text="查看全部 ›"
+                        android:text="@string/profile_view_all"
                         android:textColor="@color/streak_primary"
                         android:textSize="13sp"
                         android:textStyle="bold" />
@@ -163,7 +163,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="还没有获得勋章，坚持打卡来点亮它们吧。"
+                    android:text="@string/badge_empty"
                     android:textColor="@color/streak_muted"
                     android:textSize="14sp"
                     android:visibility="gone" />
@@ -200,7 +200,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="账号信息"
+                    android:text="@string/profile_account_info_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -231,7 +231,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="当前最佳习惯"
+                    android:text="@string/profile_best_habit_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -241,7 +241,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="晨跑打卡"
+                    android:text="@string/habit_title_sample"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -251,7 +251,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="所属分类：运动"
+                    android:text="@string/profile_best_habit_category_placeholder"
                     android:textColor="@color/streak_text_faint"
                     android:textSize="14sp" />
 
@@ -260,7 +260,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="连续打卡：0 天"
+                    android:text="@string/profile_best_habit_streak_placeholder"
                     android:textColor="@color/streak_text_faint"
                     android:textSize="14sp" />
             </LinearLayout>
@@ -282,7 +282,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="习惯分类分布"
+                    android:text="@string/stats_category_distribution_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -312,7 +312,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="使用说明"
+                    android:text="@string/profile_guide_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -321,7 +321,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="1. 在“习惯”页新增、编辑和删除每日打卡项目。"
+                    android:text="@string/profile_guide_line1"
                     android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
@@ -329,7 +329,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="2. 点击习惯卡片右侧按钮可切换今日打卡状态。"
+                    android:text="@string/profile_guide_line2"
                     android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
@@ -337,7 +337,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="3. 在编辑页可以选择分类、设置提醒、拍照或从相册选图。"
+                    android:text="@string/profile_guide_line3"
                     android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
@@ -345,7 +345,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="4. 右上角导出按钮可生成 ZIP 备份（含照片），导入可恢复。"
+                    android:text="@string/profile_guide_line4"
                     android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
             </LinearLayout>
@@ -357,7 +357,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="深色模式：跟随系统"
+            android:text="@string/profile_theme_mode"
             android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
@@ -365,7 +365,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="生成我的坚持战报"
+            android:text="@string/profile_share_report"
             android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
@@ -374,7 +374,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="删除账号"
+            android:text="@string/profile_delete_account"
             android:textAllCaps="false"
             android:textColor="@color/streak_danger"
             app:strokeColor="@color/streak_danger" />
