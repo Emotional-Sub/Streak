@@ -17,7 +17,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="习惯总数"
+        android:text="@string/stat_habit_total"
         android:textColor="@color/streak_text_faint"
         android:textSize="12sp" />
 </LinearLayout>
