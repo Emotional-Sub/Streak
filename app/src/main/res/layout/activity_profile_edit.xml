@@ -13,7 +13,7 @@
         android:backgroundTint="@android:color/transparent"
         app:navigationIcon="@android:drawable/ic_menu_close_clear_cancel"
         app:navigationIconTint="@color/streak_ink"
-        app:title="编辑资料"
+        app:title="@string/profile_edit_title"
         app:titleTextColor="@color/streak_ink" />
 
     <ScrollView
@@ -62,7 +62,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:maxLines="1"
-                    android:text="拍照"
+                    android:text="@string/action_take_photo"
                     android:textAllCaps="false" />
 
                 <com.google.android.material.button.MaterialButton
@@ -72,7 +72,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
                     android:maxLines="1"
-                    android:text="相册"
+                    android:text="@string/action_gallery"
                     android:textAllCaps="false" />
             </LinearLayout>
 
@@ -82,7 +82,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
-                android:text="移除头像"
+                android:text="@string/profile_remove_avatar"
                 android:textAllCaps="false"
                 android:visibility="gone" />
 
@@ -90,7 +90,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="或选择一个默认头像"
+                android:text="@string/profile_pick_default_avatar"
                 android:textColor="@color/streak_muted"
                 android:textSize="13sp" />
 
@@ -111,7 +111,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:hint="用户名（登录用）">
+                android:hint="@string/hint_username_login">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etProfileUsername"
@@ -126,7 +126,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:hint="昵称（显示名）">
+                android:hint="@string/hint_display_name">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etProfileDisplayName"
@@ -140,7 +140,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:hint="个性签名">
+                android:hint="@string/hint_motto">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etProfileMotto"
@@ -156,7 +156,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
-                android:text="修改密码（留空则不修改）"
+                android:text="@string/profile_change_password_hint"
                 android:textColor="@color/streak_muted"
                 android:textSize="13sp" />
 
@@ -164,7 +164,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:hint="新密码"
+                android:hint="@string/hint_new_password"
                 app:endIconMode="password_toggle">
 
                 <com.google.android.material.textfield.TextInputEditText
@@ -180,7 +180,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:hint="确认新密码"
+                android:hint="@string/hint_confirm_new_password"
                 app:endIconMode="password_toggle">
 
                 <com.google.android.material.textfield.TextInputEditText
@@ -198,7 +198,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
                 app:cornerRadius="18dp"
-                android:text="保存资料" />
+                android:text="@string/profile_save" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>
