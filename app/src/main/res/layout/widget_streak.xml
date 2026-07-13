@@ -11,7 +11,7 @@
         android:id="@+id/tvWidgetTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="今日打卡"
+        android:text="@string/widget_title"
         android:textColor="#FFFFFF"
         android:textSize="13sp"
         android:textStyle="bold" />
@@ -31,7 +31,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
-        android:text="已完成 / 习惯数"
+        android:text="@string/widget_hint"
         android:textColor="#E6FFFFFF"
         android:textSize="11sp" />
 
@@ -44,7 +44,7 @@
         android:gravity="center"
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
-        android:text="去打卡"
+        android:text="@string/widget_action"
         android:textColor="#5B5FEF"
         android:textSize="13sp"
         android:textStyle="bold" />
