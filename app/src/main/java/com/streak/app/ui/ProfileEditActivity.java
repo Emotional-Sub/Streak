@@ -13,6 +13,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.streak.app.databinding.ActivityProfileEditBinding;
+import com.streak.app.R;
 import com.streak.app.model.CameraCaptureInfo;
 import com.streak.app.model.UserAccount;
 import com.streak.app.storage.AppRepository;
@@ -77,7 +78,7 @@ public class ProfileEditActivity extends AppCompatActivity {
             }
             String copied = repository.copyAvatarImage(uri);
             if (copied == null) {
-                Toast.makeText(this, "头像选择失败", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.toast_avatar_pick_failed, Toast.LENGTH_SHORT).show();
             } else {
                 updateAvatar(copied);
             }
@@ -103,7 +104,7 @@ public class ProfileEditActivity extends AppCompatActivity {
                     if (granted) {
                         launchCamera();
                     } else {
-                        Toast.makeText(this, "需要相机权限才能拍照", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, R.string.toast_camera_permission_required, Toast.LENGTH_SHORT).show();
                     }
                 });
     }
@@ -228,14 +229,14 @@ public class ProfileEditActivity extends AppCompatActivity {
         String confirm = String.valueOf(binding.etProfileConfirmPassword.getText());
 
         if (newUsername.isEmpty()) {
-            Toast.makeText(this, "用户名不能为空", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_username_empty, Toast.LENGTH_SHORT).show();
             return;
         }
         if (displayName.isEmpty()) {
             displayName = newUsername;
         }
         if (!password.isEmpty() && !TextUtils.equals(password, confirm)) {
-            Toast.makeText(this, "两次输入的密码不一致", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_password_mismatch, Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -255,7 +256,7 @@ public class ProfileEditActivity extends AppCompatActivity {
         }
         username = newUsername;
         originalAvatarUri = currentAvatarUri;
-        Toast.makeText(this, "资料已保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.toast_profile_saved, Toast.LENGTH_SHORT).show();
         setResult(RESULT_OK);
         finish();
     }
