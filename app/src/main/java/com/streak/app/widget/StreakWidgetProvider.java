@@ -60,7 +60,7 @@ public class StreakWidgetProvider extends AppWidgetProvider {
             RemoteViews views = new RemoteViews(appContext.getPackageName(), R.layout.widget_streak);
             views.setTextViewText(R.id.tvWidgetProgress, done + " / " + total);
             boolean allDone = total > 0 && done == total;
-            views.setTextViewText(R.id.tvWidgetAction, allDone ? "今日全勤 🎉" : "去打卡");
+            views.setTextViewText(R.id.tvWidgetAction, appContext.getString(allDone ? R.string.widget_all_done : R.string.widget_go_checkin));
 
             // 整块 + 按钮都点击进入 App
             Intent openIntent = new Intent(appContext, MainActivity.class)
