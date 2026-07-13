@@ -19,7 +19,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:text="习惯名称"
+        android:text="@string/habit_title_placeholder"
         android:textColor="@color/streak_ink"
         android:textSize="15sp" />
 
@@ -27,7 +27,7 @@
         android:id="@+id/tvSheetHabitStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="已完成"
+        android:text="@string/sheet_habit_status_done"
         android:textColor="@color/streak_accent"
         android:textSize="13sp" />
 
@@ -40,7 +40,7 @@
         android:minWidth="0dp"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:text="补卡"
+        android:text="@string/sheet_habit_makeup"
         android:textSize="12sp"
         android:visibility="gone" />
 </LinearLayout>
