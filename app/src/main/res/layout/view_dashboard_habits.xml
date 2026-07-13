@@ -34,7 +34,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="今日概览"
+                    android:text="@string/habits_overview_title"
                     android:textColor="@color/streak_ink"
                     android:textSize="24sp"
                     android:textStyle="bold" />
@@ -44,7 +44,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="把想坚持的事放进这里，每天轻轻点一下，进度就会被认真记住。"
+                    android:text="@string/habits_overview_slogan"
                     android:textColor="@color/streak_muted"
                     android:textSize="14sp" />
 
@@ -74,7 +74,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="习惯总数"
+                            android:text="@string/stat_habit_total"
                             android:textColor="@color/streak_muted"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -100,7 +100,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="今日已打卡"
+                            android:text="@string/stat_today_checked"
                             android:textColor="@color/streak_muted"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -118,7 +118,7 @@
                             android:id="@+id/tvSummaryBestStreak"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="0天"
+                            android:text="@string/stat_streak_days_zero"
                             android:textColor="@color/streak_ink"
                             android:textSize="24sp"
                             android:textStyle="bold" />
@@ -126,7 +126,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="最长连续"
+                            android:text="@string/stat_best_streak"
                             android:textColor="@color/streak_muted"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -152,7 +152,7 @@
                 <com.google.android.material.textfield.TextInputLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="搜索习惯">
+                    android:hint="@string/hint_search_habits">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etSearchHabits"
@@ -199,7 +199,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:gravity="center"
-            android:text="还没有匹配的习惯"
+            android:text="@string/habits_empty"
             android:textColor="@color/streak_text_faint"
             android:textSize="16sp"
             android:visibility="gone" />
