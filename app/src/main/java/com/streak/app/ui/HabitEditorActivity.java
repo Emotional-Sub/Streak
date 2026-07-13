@@ -206,16 +206,18 @@ public class HabitEditorActivity extends AppCompatActivity {
         );
         binding.switchReminder.setChecked(true);
 
-        if (tplTitle == null) {
-            // 空白新建
-            return;
-        }
-        binding.etEditorTitle.setText(tplTitle);
-        binding.etEditorContent.setText(intent.getStringExtra(EXTRA_TPL_CONTENT));
+        // 分类：空白新建也可能带分类（习惯页选中了具体分类时），故先于 tplTitle 判空处理。
         String category = intent.getStringExtra(EXTRA_TPL_CATEGORY);
         if (category != null) {
             binding.actEditorCategory.setText(category, false);
         }
+
+        if (tplTitle == null) {
+            // 空白新建：标题/内容/标签留空，分类已在上方按选中项应用（未带则沿用默认）。
+            return;
+        }
+        binding.etEditorTitle.setText(tplTitle);
+        binding.etEditorContent.setText(intent.getStringExtra(EXTRA_TPL_CONTENT));
         binding.etEditorTags.setText(intent.getStringExtra(EXTRA_TPL_TAGS));
     }
 
