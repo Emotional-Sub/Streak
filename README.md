@@ -107,11 +107,11 @@ gradlew.bat assembleDebug    # Windows
 
 ## 项目效果图
 
-<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120133671.png" alt="image-20260713120133671" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120257725.png" alt="image-20260713120257725" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120334861.png" alt="image-20260713120334861" style="zoom:33%;" />
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120133671.png" alt="image-20260713120133671"  /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120257725.png" alt="image-20260713120257725"  /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120334861.png" alt="image-20260713120334861"  />
 
-<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120456522.png" alt="image-20260713120456522" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120509468.png" alt="image-20260713120509468" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120527368.png" alt="image-20260713120527368" style="zoom:33%;" />
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120456522.png" alt="image-20260713120456522"  /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120509468.png" alt="image-20260713120509468"  /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120527368.png" alt="image-20260713120527368"  />
 
-<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120545844.png" alt="image-20260713120545844" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120606733.png" alt="image-20260713120606733" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120631957.png" alt="image-20260713120631957" style="zoom:33%;" />
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120545844.png" alt="image-20260713120545844"  /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120606733.png" alt="image-20260713120606733"  /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120631957.png" alt="image-20260713120631957"  />
 
 ## 许可
 
