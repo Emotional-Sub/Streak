@@ -2,10 +2,13 @@ package com.streak.app.db;
 
 import android.content.Context;
 
+import androidx.annotation.NonNull;
 import androidx.room.Database;
 import androidx.room.Room;
 import androidx.room.RoomDatabase;
 import androidx.room.TypeConverters;
+import androidx.room.migration.Migration;
+import androidx.sqlite.db.SupportSQLiteDatabase;
 
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.UserAccount;
@@ -20,7 +23,7 @@ import com.streak.app.model.UserAccount;
  */
 @Database(
         entities = {HabitItem.class, UserAccount.class},
-        version = 1,
+        version = 2,
         exportSchema = false
 )
 @TypeConverters(Converters.class)
@@ -29,6 +32,19 @@ public abstract class StreakDatabase extends RoomDatabase {
     public abstract HabitDao habitDao();
 
     public abstract UserDao userDao();
+
+    /**
+     * v1 -> v2：习惯表加 ownerUsername 列以支持每账号数据隔离。
+     * 存量习惯（升级前是全局共享的）统一归给演示账号 student，
+     * 与首启种子习惯的归属保持一致，避免升级后老用户的习惯突然「无主」而查不出来。
+     */
+    static final Migration MIGRATION_1_2 = new Migration(1, 2) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE habits ADD COLUMN ownerUsername TEXT");
+            database.execSQL("UPDATE habits SET ownerUsername = 'student' WHERE ownerUsername IS NULL");
+        }
+    };
 
     private static volatile StreakDatabase instance;
 
@@ -40,7 +56,8 @@ public abstract class StreakDatabase extends RoomDatabase {
                                     context.getApplicationContext(),
                                     StreakDatabase.class,
                                     "streak.db")
-                            // 迁移策略：当前只有 v1；后续升表结构时再补 addMigrations。
+                            .addMigrations(MIGRATION_1_2)
+                            // 迁移策略：v1->v2 给 habits 加 ownerUsername 列并把存量习惯归属演示账号。
                             // 旧 JSON 数据的搬运由 AppRepository 在首启时完成，不走 Room 迁移。
                             //
                             // 允许主线程查询：旧 JSON 存储本就是同步调用（StreakApp 冷启动、
