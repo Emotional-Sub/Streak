@@ -2,6 +2,24 @@ plugins {
     id 'com.android.application'
 }
 
+// Release 签名凭据从版本库外读取，绝不硬编码进仓库：
+// 优先读根目录 keystore.properties（已被 .gitignore 忽略），缺省再回退到环境变量。
+// 三者齐全（keystore 文件存在 + 两个密码）才启用 release 签名，否则留空由 CI/开发者本地补齐，
+// 避免因缺凭据导致 assembleRelease 直接失败。
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def resolveSigning = { String key, String env ->
+    keystoreProps.getProperty(key) ?: System.getenv(env)
+}
+def relStoreFile = resolveSigning('storeFile', 'STREAK_STORE_FILE') ?: "${rootDir}/release/streak-release.jks"
+def relStorePassword = resolveSigning('storePassword', 'STREAK_STORE_PASSWORD')
+def relKeyAlias = resolveSigning('keyAlias', 'STREAK_KEY_ALIAS') ?: 'streak'
+def relKeyPassword = resolveSigning('keyPassword', 'STREAK_KEY_PASSWORD')
+def hasReleaseSigning = relStorePassword != null && relKeyPassword != null && file(relStoreFile).exists()
+
 android {
     namespace 'com.streak.app'
     compileSdk 34
@@ -21,10 +39,12 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("${rootDir}/release/streak-release.jks")
-            storePassword 'streak123'
-            keyAlias 'streak'
-            keyPassword 'streak123'
+            if (hasReleaseSigning) {
+                storeFile file(relStoreFile)
+                storePassword relStorePassword
+                keyAlias relKeyAlias
+                keyPassword relKeyPassword
+            }
         }
     }
 
@@ -32,7 +52,11 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // 仅在凭据齐全时套用 release 签名；否则输出未签名包，交由外部签名，
+            // 避免缺少 keystore.properties/环境变量时构建直接报错。
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
