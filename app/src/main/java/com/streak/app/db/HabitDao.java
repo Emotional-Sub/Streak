@@ -26,6 +26,14 @@ public interface HabitDao {
     @Query("SELECT * FROM habits WHERE id = :id LIMIT 1")
     HabitItem findById(long id);
 
+    /**
+     * 全表判断某 id 是否已被占用（跨所有账号）。
+     * id 是全表主键，生成新 id 时必须对整表防撞——只在当前账号内查会漏掉其它账号的
+     * 同 id 习惯，导致 upsert 的 REPLACE 跨账号覆盖，破坏数据隔离。
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM habits WHERE id = :id)")
+    boolean existsById(long id);
+
     @Query("SELECT COUNT(*) FROM habits")
     int count();
 
