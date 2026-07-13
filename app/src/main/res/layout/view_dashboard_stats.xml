@@ -29,7 +29,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="统计总览"
+                    android:text="@string/stats_overview_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="22sp"
                     android:textStyle="bold" />
@@ -38,7 +38,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="这里可以快速看到整体坚持情况和各类习惯的完成表现。"
+                    android:text="@string/stats_overview_subtitle"
                     android:textColor="@color/streak_text_secondary"
                     android:textSize="14sp" />
 
@@ -86,7 +86,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="打卡热力图"
+                    android:text="@string/stats_heatmap_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -95,7 +95,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="最近约 4 个月，颜色越深当天打卡越多"
+                    android:text="@string/stats_heatmap_subtitle"
                     android:textColor="@color/streak_muted"
                     android:textSize="13sp" />
 
@@ -117,7 +117,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="4dp"
-                        android:text="少"
+                        android:text="@string/heatmap_legend_less"
                         android:textColor="@color/streak_muted"
                         android:textSize="11sp" />
 
@@ -142,7 +142,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="多"
+                        android:text="@string/heatmap_legend_more"
                         android:textColor="@color/streak_muted"
                         android:textSize="11sp" />
                 </LinearLayout>
@@ -165,7 +165,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="打卡总览"
+                    android:text="@string/stats_checkin_overview_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -195,7 +195,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="习惯分类分布"
+                    android:text="@string/stats_category_distribution_title"
                     android:textColor="@color/streak_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />
@@ -204,7 +204,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="各分类下的习惯数量占比"
+                    android:text="@string/stats_category_distribution_subtitle"
                     android:textColor="@color/streak_muted"
                     android:textSize="13sp" />
 
@@ -233,7 +233,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:text="暂无统计数据"
+                    android:text="@string/stats_empty"
                     android:textColor="@color/streak_text_faint"
                     android:textSize="16sp"
                     android:visibility="gone" />
