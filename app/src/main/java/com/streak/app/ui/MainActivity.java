@@ -50,6 +50,7 @@ import com.streak.app.model.HabitTemplate;
 import com.streak.app.model.UserAccount;
 import com.streak.app.StreakApp;
 import com.streak.app.storage.AppRepository;
+import com.streak.app.widget.StreakWidgetProvider;
 import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.BadgeUtils;
 import com.streak.app.util.ShareCardGenerator;
@@ -1195,6 +1196,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             }
             target.setCompletedDates(dates);
             repository.saveHabit(target);
+            // 日历补卡/取消也刷新桌面组件，保持进度一致
+            StreakWidgetProvider.refreshAll(getApplicationContext());
         });
     }
 
@@ -1305,6 +1308,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 target.setCompletedDates(completedDates);
                 repository.saveHabit(target);
             }
+            // 打卡状态变了，主动刷新桌面组件（组件读的是同一份 Room 数据）
+            StreakWidgetProvider.refreshAll(getApplicationContext());
             postToUi(this::refreshDashboardData);
         });
     }
