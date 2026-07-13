@@ -26,6 +26,9 @@ public class HabitItem {
     private int weeklyTarget;
     // 每日打卡备注/心情：日期(yyyy-MM-dd) -> 文本
     private java.util.Map<String, String> notes;
+    // 归属账号用户名：每个账号只看/改自己的习惯（数据隔离）。
+    // 旧数据迁移时统一归给演示账号 student。
+    private String ownerUsername;
 
     public HabitItem() {
         this.tags = new ArrayList<>();
@@ -188,5 +191,14 @@ public class HabitItem {
         } else {
             notes.put(date, note.trim());
         }
+    }
+
+    /** 归属账号用户名（数据隔离用）。旧数据/未设置时可能为 null。 */
+    public String getOwnerUsername() {
+        return ownerUsername;
+    }
+
+    public void setOwnerUsername(String ownerUsername) {
+        this.ownerUsername = ownerUsername;
     }
 }
