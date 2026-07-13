@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         app:navigationIcon="@drawable/ic_arrow_back"
-        app:title="坚持战报"
+        app:title="@string/share_report_title"
         app:titleTextColor="@color/streak_text_primary" />
 
     <com.google.android.material.chip.ChipGroup
@@ -30,7 +30,7 @@
             style="@style/Widget.Material3.Chip.Filter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="总成就"
+            android:text="@string/report_scope_total"
             android:checked="true" />
 
         <com.google.android.material.chip.Chip
@@ -38,14 +38,14 @@
             style="@style/Widget.Material3.Chip.Filter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="近 7 天" />
+            android:text="@string/report_scope_7" />
 
         <com.google.android.material.chip.Chip
             android:id="@+id/chipScope30"
             style="@style/Widget.Material3.Chip.Filter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="近 30 天" />
+            android:text="@string/report_scope_30" />
     </com.google.android.material.chip.ChipGroup>
 
     <FrameLayout
@@ -59,7 +59,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:adjustViewBounds="true"
-            android:contentDescription="战报预览"
+            android:contentDescription="@string/cd_report_preview"
             android:scaleType="fitCenter" />
     </FrameLayout>
 
@@ -76,7 +76,7 @@
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
-            android:text="保存到相册"
+            android:text="@string/action_save_to_gallery"
             android:textAllCaps="false"
             app:cornerRadius="18dp" />
 
@@ -86,7 +86,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:text="分享"
+            android:text="@string/action_share"
             android:textAllCaps="false"
             app:cornerRadius="18dp" />
     </LinearLayout>
