@@ -6,7 +6,7 @@
     android:layout_marginTop="4dp"
     android:layout_marginBottom="8dp"
     android:paddingStart="4dp"
-    android:text="未打卡"
+    android:text="@string/habit_section_pending"
     android:textColor="@color/streak_muted"
     android:textSize="14sp"
     android:textStyle="bold" />
