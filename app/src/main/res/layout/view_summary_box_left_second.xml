@@ -9,7 +9,7 @@
         android:id="@+id/tvStatsBestStreak"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="0天"
+        android:text="@string/stat_streak_days_zero"
         android:textColor="@color/streak_text_primary"
         android:textSize="24sp"
         android:textStyle="bold" />
@@ -17,7 +17,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="最长连续"
+        android:text="@string/stat_best_streak"
         android:textColor="@color/streak_text_faint"
         android:textSize="12sp" />
 </LinearLayout>
