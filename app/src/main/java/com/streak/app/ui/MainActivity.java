@@ -977,15 +977,28 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         editorLauncher.launch(intent);
     }
 
+    /**
+     * 空白新建：若习惯页选中了具体分类（非「全部」），把该分类带进编辑器作为默认分类；
+     * 停在「全部」时不带，编辑器沿用自身默认分类。
+     */
+    private void openBlankEditorWithSelectedCategory() {
+        Intent intent = new Intent(this, HabitEditorActivity.class);
+        if (!"全部".equals(selectedCategory)) {
+            intent.putExtra(HabitEditorActivity.EXTRA_TPL_CATEGORY, selectedCategory);
+        }
+        editorLauncher.launch(intent);
+    }
+
     private void showTemplateChooser() {
         SheetTemplateChooserBinding sheetBinding = SheetTemplateChooserBinding.inflate(getLayoutInflater());
         ViewGroup container = sheetBinding.layoutTemplateContent;
         BottomSheetDialog dialog = new BottomSheetDialog(this);
 
-        // 空白新建
+        // 空白新建：把当前选中的分类带进编辑器，选了「生活」新建就默认「生活」；
+        // 停在「全部」时不带分类，由编辑器用其自身默认值。
         addTemplateRow(container, "空白新建", "从零开始，自定义全部内容。", () -> {
             dialog.dismiss();
-            openEditor(-1L);
+            openBlankEditorWithSelectedCategory();
         });
 
         // 预置模板：当习惯页选中了具体分类（非「全部」）时，只展示该分类的模板
