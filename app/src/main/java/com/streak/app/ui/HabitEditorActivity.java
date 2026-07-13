@@ -317,9 +317,10 @@ public class HabitEditorActivity extends AppCompatActivity {
         // 先存旧图路径，因为下面 setImageUri 会直接改写 originalHabit 自身
         String previousImageUri = originalHabit == null ? null : originalHabit.getImageUri();
         if (originalHabit == null) {
-            // 仅新建时需读全量来给新 id 防撞（同一毫秒连续新建两条会撞时递增）；
-            // 编辑已有习惯走 upsert 覆盖同一 id，无需读全表。
-            item.setId(generateUniqueId(repository.readHabits()));
+            // 仅新建时生成防撞 id：走仓库的全表存在性查询，对「所有账号」防撞。
+            // 不能只在当前账号的 readHabits() 里查——id 是全表主键，漏查其它账号的
+            // 同 id 会让 upsert 的 REPLACE 跨账号覆盖，破坏数据隔离。
+            item.setId(repository.generateUniqueHabitId());
             item.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
             item.setCompletedDates(new ArrayList<>());
         }
@@ -337,32 +338,12 @@ public class HabitEditorActivity extends AppCompatActivity {
         }
 
         // 只 upsert 这一条（按 id 主键），不整表覆盖——避免并发下用本页的过期快照
-        // 抹掉其它习惯的改动（如后台补卡/提醒回执）。id 唯一性由 generateUniqueId 保证。
+        // 抹掉其它习惯的改动（如后台补卡/提醒回执）。id 唯一性由仓库全表防撞保证。
         repository.saveHabit(item);
         repository.syncReminder(item);
         savedHabit = true;
         setResult(RESULT_OK, new Intent().putExtra(EXTRA_HABIT_ID, item.getId()));
         finish();
-    }
-
-    /**
-     * 生成不与现有习惯冲突的 ID。以毫秒时间戳为基准，若同一毫秒内已存在相同 ID
-     * （连续新建两条会撞），则递增直到唯一，避免 saveHabit 的按 ID 替换把另一条覆盖掉。
-     */
-    private long generateUniqueId(List<HabitItem> habits) {
-        long id = System.currentTimeMillis();
-        boolean clash = true;
-        while (clash) {
-            clash = false;
-            for (HabitItem h : habits) {
-                if (h.getId() == id) {
-                    id++;
-                    clash = true;
-                    break;
-                }
-            }
-        }
-        return id;
     }
 
     private boolean savedHabit = false;
