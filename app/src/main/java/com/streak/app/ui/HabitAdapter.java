@@ -1,6 +1,6 @@
 package com.streak.app.ui;
 
-import android.net.Uri;
+import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -31,13 +31,23 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     private static final int TYPE_SECTION = 0;
     private static final int TYPE_HABIT = 1;
 
-    /** 列表行：分组标题（仅 title 有值）或习惯卡（仅 habit 有值）。 */
+    /** 列表行：分组标题（sectionTitleRes 有值）或习惯卡（habit 有值）。 */
     private static class Row {
-        final String sectionTitle;
+        final int sectionTitleRes;
+        final int sectionCount;
         final HabitItem habit;
 
-        Row(String sectionTitle, HabitItem habit) {
-            this.sectionTitle = sectionTitle;
+        /** 分组标题行：带分组文案资源 id 与该组数量，交由 ViewHolder 用 Context 格式化。 */
+        Row(int sectionTitleRes, int sectionCount) {
+            this.sectionTitleRes = sectionTitleRes;
+            this.sectionCount = sectionCount;
+            this.habit = null;
+        }
+
+        /** 习惯卡行。 */
+        Row(HabitItem habit) {
+            this.sectionTitleRes = 0;
+            this.sectionCount = 0;
             this.habit = habit;
         }
     }
@@ -69,15 +79,15 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
                 }
             }
             if (!pending.isEmpty()) {
-                rows.add(new Row("未打卡 · " + pending.size(), null));
+                rows.add(new Row(R.string.group_pending, pending.size()));
                 for (HabitItem item : pending) {
-                    rows.add(new Row(null, item));
+                    rows.add(new Row(item));
                 }
             }
             if (!done.isEmpty()) {
-                rows.add(new Row("已打卡 · " + done.size(), null));
+                rows.add(new Row(R.string.group_done, done.size()));
                 for (HabitItem item : done) {
-                    rows.add(new Row(null, item));
+                    rows.add(new Row(item));
                 }
             }
         }
@@ -103,7 +113,7 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
         Row row = rows.get(position);
         if (holder instanceof SectionViewHolder) {
-            ((SectionViewHolder) holder).bind(row.sectionTitle);
+            ((SectionViewHolder) holder).bind(row.sectionTitleRes, row.sectionCount);
         } else {
             ((HabitViewHolder) holder).bind(row.habit, today, callback);
         }
@@ -122,8 +132,9 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             this.binding = binding;
         }
 
-        void bind(String title) {
-            binding.tvHabitSectionTitle.setText(title);
+        void bind(int titleRes, int count) {
+            binding.tvHabitSectionTitle.setText(
+                    binding.getRoot().getContext().getString(titleRes, count));
         }
     }
 
@@ -136,6 +147,7 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         }
 
         void bind(HabitItem item, String today, Callback callback) {
+            Context ctx = binding.getRoot().getContext();
             boolean completedToday = item.getCompletedDates() != null && item.getCompletedDates().contains(today);
             // 状态点/分组按「当前周期是否达标」：每天型看今天，每周型看滚动 7 天是否满 N 次。
             boolean onTrack = HabitUtils.isCompletedForPeriod(item);
@@ -143,18 +155,15 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             int streak = HabitUtils.currentStreak(item.getCompletedDates());
 
             binding.tvHabitTitle.setText(item.getTitle());
-            binding.tvHabitCreatedAt.setText("创建时间：" + item.getCreatedAt());
+            binding.tvHabitCreatedAt.setText(ctx.getString(R.string.habit_created_at, item.getCreatedAt()));
             binding.tvHabitContent.setText(item.getContent());
             // 每周型额外显示本周进度（近 7 天已打 x/N），让达标情况一目了然。
             String goalText = item.isWeeklyGoal()
-                    ? "每周 " + item.getWeeklyTarget() + " 次（本周 "
-                        + HabitUtils.weeklyDoneCount(item) + "/" + item.getWeeklyTarget() + "）"
-                    : "每天";
-            binding.tvHabitMeta.setText(
-                    item.getCategory() + " · " + goalText + " · 提醒 " + item.getReminderTime()
-                            + " · 已打卡 " + totalCheckIns + " 次"
-                            + " · 连续 " + streak + " 天"
-            );
+                    ? ctx.getString(R.string.habit_goal_weekly,
+                        item.getWeeklyTarget(), HabitUtils.weeklyDoneCount(item))
+                    : ctx.getString(R.string.habit_goal_daily);
+            binding.tvHabitMeta.setText(ctx.getString(R.string.habit_meta_line,
+                    item.getCategory(), goalText, item.getReminderTime(), totalCheckIns, streak));
 
             if (item.getTags() != null && !item.getTags().isEmpty()) {
                 StringBuilder tagsText = new StringBuilder();
@@ -183,7 +192,8 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             binding.btnHabitComplete.setImageResource(
                     completedToday ? R.drawable.ic_check_done : R.drawable.ic_check_pending
             );
-            binding.btnHabitComplete.setContentDescription(completedToday ? "已打卡" : "打卡");
+            binding.btnHabitComplete.setContentDescription(
+                    ctx.getString(completedToday ? R.string.cd_checked_in : R.string.cd_check_in));
             binding.btnHabitComplete.setOnClickListener(v -> callback.onToggleComplete(item));
             binding.btnHabitEdit.setOnClickListener(v -> callback.onEdit(item));
             binding.btnHabitShare.setOnClickListener(v -> callback.onShare(item));
