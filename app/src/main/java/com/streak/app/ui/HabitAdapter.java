@@ -51,8 +51,9 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     }
 
     /**
-     * 重新组装列表：未打卡的习惯排在「未打卡」分组、已打卡的排在「已打卡」分组（沉到底部）。
-     * 任一分组为空则不显示其标题。
+     * 重新组装列表：未完成当前周期的习惯排在「未打卡」分组、已完成的排在「已打卡」分组（沉到底部）。
+     * 完成判据用 {@link HabitUtils#isCompletedForPeriod}：每天型看今天，每周 N 次型看滚动 7 天是否达标——
+     * 已达标的每周型不再停留在「未打卡」催打卡。任一分组为空则不显示其标题。
      */
     public void submitList(List<HabitItem> source, String today) {
         this.today = today;
@@ -61,9 +62,7 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             List<HabitItem> pending = new ArrayList<>();
             List<HabitItem> done = new ArrayList<>();
             for (HabitItem item : source) {
-                boolean completedToday = item.getCompletedDates() != null
-                        && item.getCompletedDates().contains(today);
-                if (completedToday) {
+                if (HabitUtils.isCompletedForPeriod(item)) {
                     done.add(item);
                 } else {
                     pending.add(item);
@@ -138,14 +137,19 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
 
         void bind(HabitItem item, String today, Callback callback) {
             boolean completedToday = item.getCompletedDates() != null && item.getCompletedDates().contains(today);
+            // 状态点/分组按「当前周期是否达标」：每天型看今天，每周型看滚动 7 天是否满 N 次。
+            boolean onTrack = HabitUtils.isCompletedForPeriod(item);
             int totalCheckIns = HabitUtils.uniqueCheckIns(item);
             int streak = HabitUtils.currentStreak(item.getCompletedDates());
 
             binding.tvHabitTitle.setText(item.getTitle());
             binding.tvHabitCreatedAt.setText("创建时间：" + item.getCreatedAt());
             binding.tvHabitContent.setText(item.getContent());
+            // 每周型额外显示本周进度（近 7 天已打 x/N），让达标情况一目了然。
             String goalText = item.isWeeklyGoal()
-                    ? "每周 " + item.getWeeklyTarget() + " 次" : "每天";
+                    ? "每周 " + item.getWeeklyTarget() + " 次（本周 "
+                        + HabitUtils.weeklyDoneCount(item) + "/" + item.getWeeklyTarget() + "）"
+                    : "每天";
             binding.tvHabitMeta.setText(
                     item.getCategory() + " · " + goalText + " · 提醒 " + item.getReminderTime()
                             + " · 已打卡 " + totalCheckIns + " 次"
@@ -171,9 +175,11 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
                 binding.ivHabitImage.setImageDrawable(null);
             }
 
+            // 状态点：绿点表示「当前周期已达标」（每周型满 N 次即绿，不必今天打）。
             binding.viewStatusDot.setBackgroundResource(
-                    completedToday ? R.drawable.bg_status_done : R.drawable.bg_status_pending
+                    onTrack ? R.drawable.bg_status_done : R.drawable.bg_status_pending
             );
+            // 打卡按钮：反映「今天是否打卡」——点击是对今天的增删，与周期达标解耦。
             binding.btnHabitComplete.setImageResource(
                     completedToday ? R.drawable.ic_check_done : R.drawable.ic_check_pending
             );
