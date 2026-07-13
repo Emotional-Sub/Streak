@@ -19,6 +19,10 @@ public interface HabitDao {
     @Query("SELECT * FROM habits")
     List<HabitItem> getAll();
 
+    /** 只取某账号的习惯（数据隔离）。 */
+    @Query("SELECT * FROM habits WHERE ownerUsername = :owner")
+    List<HabitItem> getByOwner(String owner);
+
     @Query("SELECT * FROM habits WHERE id = :id LIMIT 1")
     HabitItem findById(long id);
 
@@ -36,6 +40,22 @@ public interface HabitDao {
 
     @Query("DELETE FROM habits")
     void clear();
+
+    /** 只清空某账号的习惯（删号时用，不动其它账号数据）。 */
+    @Query("DELETE FROM habits WHERE ownerUsername = :owner")
+    void clearByOwner(String owner);
+
+    /**
+     * 用给定列表整体替换某账号的习惯：先删该账号旧数据，再批量写入。
+     * 事务性保证中途失败回滚，且绝不触碰其它账号的习惯。
+     */
+    @androidx.room.Transaction
+    default void replaceAllForOwner(String owner, List<HabitItem> habits) {
+        clearByOwner(owner);
+        if (habits != null && !habits.isEmpty()) {
+            upsertAll(habits);
+        }
+    }
 
     /**
      * 用给定列表整体替换习惯表：清空后批量写入。
