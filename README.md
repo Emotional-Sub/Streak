@@ -7,13 +7,7 @@
 
 ## 功能特性
 
-<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120133671.png" alt="image-20260713120133671" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120257725.png" alt="image-20260713120257725" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120334861.png" alt="image-20260713120334861" style="zoom:33%;" />
-
-<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120456522.png" alt="image-20260713120456522" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120509468.png" alt="image-20260713120509468" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120527368.png" alt="image-20260713120527368" style="zoom:33%;" />
-
-<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120545844.png" alt="image-20260713120545844" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120606733.png" alt="image-20260713120606733" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120631957.png" alt="image-20260713120631957" style="zoom:33%;" />
-
-
+**最下面有项目部分效果图，放在前面太影响观感了**
 
 ### 账号与安全
 - 本地注册、登录、退出，支持「记住用户名」
@@ -110,6 +104,14 @@ gradlew.bat assembleDebug    # Windows
 | `SCHEDULE_EXACT_ALARM` | 精确定时提醒（不可用时自动降级） |
 | `RECEIVE_BOOT_COMPLETED` | 开机后重建提醒 |
 | `WRITE_EXTERNAL_STORAGE` | 保存二维码到相册（仅 Android 9 / API 28 及以下；API 29+ 走 MediaStore 免此权限） |
+
+## 项目效果图
+
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120133671.png" alt="image-20260713120133671" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120257725.png" alt="image-20260713120257725" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120334861.png" alt="image-20260713120334861" style="zoom:33%;" />
+
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120456522.png" alt="image-20260713120456522" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120509468.png" alt="image-20260713120509468" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120527368.png" alt="image-20260713120527368" style="zoom:33%;" />
+
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120545844.png" alt="image-20260713120545844" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120606733.png" alt="image-20260713120606733" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120631957.png" alt="image-20260713120631957" style="zoom:33%;" />
 
 ## 许可
 
