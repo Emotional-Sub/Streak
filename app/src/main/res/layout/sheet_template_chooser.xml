@@ -19,7 +19,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="新增习惯"
+        android:text="@string/title_add_habit"
         android:textColor="@color/streak_ink"
         android:textSize="20sp"
         android:textStyle="bold" />
@@ -28,7 +28,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="选择一个模板快速开始，或从空白创建。"
+        android:text="@string/template_chooser_subtitle"
         android:textColor="@color/streak_muted"
         android:textSize="14sp" />
 
