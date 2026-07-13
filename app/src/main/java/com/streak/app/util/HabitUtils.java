@@ -241,9 +241,10 @@ public final class HabitUtils {
     }
 
     /**
-     * 判断习惯「今天是否算达标」：
+     * 判断习惯「当前是否算达标」（全 App 统一口径，列表分组/状态点/统计/组件/提醒都走这里）：
      * - 每天型（weeklyTarget=0）：今天打过卡即达标。
-     * - 每周 N 次型：本自然周（近 7 天窗口）内去重打卡数 ≥ N 即达标，与具体哪天无关。
+     * - 每周 N 次型：滚动最近 7 天（含今天）窗口内去重打卡数 ≥ N 即达标，与具体哪天无关。
+     *   注意是「滚动 7 天」而非「自然周」——不在周一清零，更贴合「最近有没有坚持」的直觉。
      */
     public static boolean isOnTrackToday(HabitItem item) {
         if (item == null) {
@@ -257,6 +258,16 @@ public final class HabitUtils {
             return dates.contains(today());
         }
         return weeklyDoneCount(item) >= item.getWeeklyTarget();
+    }
+
+    /**
+     * 习惯在列表/统计里是否算「已完成当前周期」——全 App 完成态的统一判据：
+     * - 每天型：今天是否打过卡；
+     * - 每周 N 次型：滚动 7 天窗口内是否已达标（等价 isOnTrackToday）。
+     * 用它替代散落各处的裸 completedDates.contains(today)，避免每周型已达标却仍显示未打卡。
+     */
+    public static boolean isCompletedForPeriod(HabitItem item) {
+        return isOnTrackToday(item);
     }
 
     /** 单个习惯最近 7 天（含今天）的去重打卡次数，排除未来日期。 */
