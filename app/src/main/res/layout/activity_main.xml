@@ -29,7 +29,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="每日打卡"
+                    android:text="@string/login_app_name"
                     android:textColor="@color/streak_ink"
                     android:textSize="34sp"
                     android:textStyle="bold" />
@@ -38,7 +38,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="记录习惯，坚持成长"
+                    android:text="@string/login_slogan"
                     android:textColor="@color/streak_muted"
                     android:textSize="16sp" />
 
@@ -76,7 +76,7 @@
                     <com.google.android.material.textfield.TextInputLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="用户名">
+                        android:hint="@string/hint_username">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etLoginUsername"
@@ -89,7 +89,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="密码">
+                        android:hint="@string/hint_password">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etLoginPassword"
@@ -109,7 +109,7 @@
                             android:id="@+id/cbRememberPassword"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="记住用户名" />
+                            android:text="@string/login_remember_username" />
 
                         <View
                             android:layout_width="0dp"
@@ -121,7 +121,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:padding="8dp"
-                            android:text="注册账号"
+                            android:text="@string/register_title_short"
                             android:textColor="@color/streak_primary"
                             android:textStyle="bold" />
                     </LinearLayout>
@@ -132,7 +132,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
                         app:cornerRadius="18dp"
-                        android:text="登录" />
+                        android:text="@string/login_submit" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnLoginImport"
@@ -141,14 +141,14 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
                         app:cornerRadius="18dp"
-                        android:text="导入备份恢复"
+                        android:text="@string/login_import_backup"
                         android:textAllCaps="false" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="演示账号已在上方给出"
+                        android:text="@string/login_demo_hint"
                         android:textColor="@color/streak_text_faint"
                         android:textSize="12sp" />
                 </LinearLayout>
@@ -175,7 +175,7 @@
                 app:navigationIconTint="@color/streak_ink"
                 app:subtitleTextColor="@color/streak_muted"
                 app:titleTextColor="@color/streak_ink"
-                app:title="习惯" />
+                app:title="@string/dashboard_title" />
 
             <FrameLayout
                 android:layout_width="match_parent"
@@ -207,7 +207,7 @@
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="20dp"
             android:layout_marginBottom="160dp"
-            android:contentDescription="扫码添加同款"
+            android:contentDescription="@string/cd_scan_add_habit"
             app:backgroundTint="@color/streak_surface"
             app:fabSize="mini"
             app:srcCompat="@drawable/ic_scan"
@@ -220,7 +220,7 @@
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="20dp"
             android:layout_marginBottom="88dp"
-            android:contentDescription="新增习惯"
+            android:contentDescription="@string/title_add_habit"
             app:backgroundTint="@color/streak_primary"
             app:tint="@android:color/white"
             app:srcCompat="@android:drawable/ic_input_add" />
