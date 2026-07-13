@@ -426,8 +426,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void loadLoginState() {
+        // 安全整改：只回填记住的用户名，不再回填密码（密码已不再持久化）。
         binding.etLoginUsername.setText(repository.getSavedUsername());
-        binding.etLoginPassword.setText(repository.getSavedPassword());
         binding.cbRememberPassword.setChecked(repository.isRememberPassword());
 
         currentUser = repository.getCurrentUser();
@@ -513,10 +513,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     private void showLoginPage() {
-        // 回到登录界面时按当前持久化状态重置输入框：
-        // 删除账号会清空保存的用户名/密码，这里重读才能避免旧值残留在文本框。
+        // 回到登录界面时按当前持久化状态重置输入框：只回填用户名，绝不回填密码
+        //（安全整改：密码不再持久化），并清空上一次残留在密码框里的输入。
         binding.etLoginUsername.setText(repository.getSavedUsername());
-        binding.etLoginPassword.setText(repository.getSavedPassword());
+        binding.etLoginPassword.setText("");
         binding.cbRememberPassword.setChecked(repository.isRememberPassword());
         binding.loginContainer.setVisibility(View.VISIBLE);
         binding.dashboardRoot.setVisibility(View.GONE);
