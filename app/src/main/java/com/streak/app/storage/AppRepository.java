@@ -460,6 +460,19 @@ public class AppRepository {
     }
 
     /**
+     * 生成全表唯一的习惯 id（以当前毫秒为基准，占用则递增）。
+     * id 是全表主键，必须对整表防撞——不能只在当前账号内查，否则两个账号在同一毫秒
+     * 新建可能撞 id，upsert 的 REPLACE 会跨账号覆盖，破坏数据隔离。
+     */
+    public long generateUniqueHabitId() {
+        long id = System.currentTimeMillis();
+        while (habitDao.existsById(id)) {
+            id++;
+        }
+        return id;
+    }
+
+    /**
      * 保存单个习惯（新增或更新，按 id 主键 upsert）。
      * 相比整表 writeHabits，只动这一行，避免「读全量→改一条→写全量」在并发下
      * 用过期快照覆盖掉其它习惯的改动（补卡、编辑、提醒回执可能同时发生）。
