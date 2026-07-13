@@ -37,7 +37,7 @@ public class BadgeWallActivity extends AppCompatActivity {
         AppRepository repository = new AppRepository(this);
         List<Badge> badges = BadgeUtils.evaluate(repository.readHabits());
         int unlocked = BadgeUtils.unlockedCount(badges);
-        binding.tvBadgeWallSummary.setText("已点亮 " + unlocked + " / " + badges.size() + " 枚勋章");
+        binding.tvBadgeWallSummary.setText(getString(R.string.badge_wall_summary, unlocked, badges.size()));
 
         renderGrid(badges);
     }
@@ -95,7 +95,7 @@ public class BadgeWallActivity extends AppCompatActivity {
         cell.getRoot().setOnClickListener(v ->
                 android.widget.Toast.makeText(this,
                         badge.getTitle() + "：" + badge.getDescription()
-                                + (badge.isUnlocked() ? "（已点亮）" : "（未点亮）"),
+                                + getString(badge.isUnlocked() ? R.string.badge_lit_suffix : R.string.badge_unlit_suffix),
                         android.widget.Toast.LENGTH_SHORT).show());
         return cell.getRoot();
     }
