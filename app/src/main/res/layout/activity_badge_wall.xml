@@ -13,7 +13,7 @@
         android:backgroundTint="@android:color/transparent"
         app:navigationIcon="@android:drawable/ic_menu_close_clear_cancel"
         app:navigationIconTint="@color/streak_ink"
-        app:title="勋章墙"
+        app:title="@string/badge_wall_title"
         app:titleTextColor="@color/streak_ink" />
 
     <ScrollView
@@ -31,7 +31,7 @@
                 android:id="@+id/tvBadgeWallSummary"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="已点亮 0 / 0 枚勋章"
+                android:text="@string/badge_wall_summary"
                 android:textColor="@color/streak_muted"
                 android:textSize="14sp" />
 
