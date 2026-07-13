@@ -319,4 +319,9 @@
         <item>坚持一件小事，胜过三分钟热度的雄心。</item>
         <item>每天一点点，攒起来就是了不起。</item>
     </string-array>
+    <string name="nav_calendar">日历</string>
+    <string name="nav_stats">统计</string>
+    <string name="nav_profile">我的</string>
+    <string name="menu_export_backup">导出备份</string>
+    <string name="menu_logout">退出</string>
 </resources>
