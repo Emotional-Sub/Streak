@@ -7,6 +7,14 @@
 
 ## 功能特性
 
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120133671.png" alt="image-20260713120133671" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120257725.png" alt="image-20260713120257725" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120334861.png" alt="image-20260713120334861" style="zoom:33%;" />
+
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120456522.png" alt="image-20260713120456522" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120509468.png" alt="image-20260713120509468" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120527368.png" alt="image-20260713120527368" style="zoom:33%;" />
+
+<img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120545844.png" alt="image-20260713120545844" style="zoom:33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120606733.png" alt="image-20260713120606733" style="zoom: 33%;" /><img src="https://gitee.com/CBD-A/typora-cloud/raw/master/image-20260713120631957.png" alt="image-20260713120631957" style="zoom:33%;" />
+
+
+
 ### 账号与安全
 - 本地注册、登录、退出，支持「记住用户名」
 - 密码采用 PBKDF2 加盐哈希存储；兼容旧明文账号并在首次登录时自动迁移
