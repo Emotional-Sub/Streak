@@ -20,7 +20,7 @@
         android:id="@+id/tvSheetDate"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="2026-06-18 打卡详情"
+        android:text="@string/sheet_calendar_detail_title"
         android:textColor="@color/streak_ink"
         android:textSize="20sp"
         android:textStyle="bold" />
@@ -30,7 +30,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="已完成 0 项，未完成 0 项"
+        android:text="@string/sheet_calendar_detail_summary"
         android:textColor="@color/streak_muted"
         android:textSize="14sp" />
 
