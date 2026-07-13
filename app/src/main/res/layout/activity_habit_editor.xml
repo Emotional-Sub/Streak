@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:backgroundTint="@android:color/white"
-        app:title="新增习惯" />
+        app:title="@string/title_add_habit" />
 
     <ScrollView
         android:layout_width="match_parent"
@@ -39,7 +39,7 @@
                     <com.google.android.material.textfield.TextInputLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="标题">
+                        android:hint="@string/hint_editor_title">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etEditorTitle"
@@ -53,7 +53,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="内容">
+                        android:hint="@string/hint_editor_content">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etEditorContent"
@@ -70,7 +70,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="分类">
+                        android:hint="@string/hint_editor_category">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/actEditorCategory"
@@ -86,7 +86,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="目标周期">
+                        android:hint="@string/hint_editor_goal">
 
                         <com.google.android.material.textfield.MaterialAutoCompleteTextView
                             android:id="@+id/actEditorGoal"
@@ -101,7 +101,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="标签（多个标签用逗号分隔）">
+                        android:hint="@string/hint_editor_tags">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etEditorTags"
@@ -115,7 +115,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:hint="提醒时间">
+                        android:hint="@string/hint_editor_reminder_time">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etEditorReminderTime"
@@ -132,7 +132,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="开启提醒" />
+                        android:text="@string/editor_switch_reminder" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -147,7 +147,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:maxLines="1"
-                            android:text="拍照"
+                            android:text="@string/action_take_photo"
                             android:textAllCaps="false"
                             app:icon="@android:drawable/ic_menu_camera" />
 
@@ -159,7 +159,7 @@
                             android:layout_marginStart="12dp"
                             android:layout_weight="1"
                             android:maxLines="1"
-                            android:text="相册"
+                            android:text="@string/action_gallery"
                             android:textAllCaps="false"
                             app:icon="@android:drawable/ic_menu_gallery" />
                     </LinearLayout>
@@ -179,7 +179,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="移除图片"
+                        android:text="@string/editor_remove_photo"
                         android:textAllCaps="false"
                         android:visibility="gone" />
 
@@ -188,7 +188,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="20dp"
-                        android:text="保存" />
+                        android:text="@string/editor_save" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
