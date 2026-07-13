@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.streak.app.R;
 import com.streak.app.databinding.ActivityHabitEditorBinding;
 import com.streak.app.model.CameraCaptureInfo;
 import com.streak.app.model.HabitItem;
@@ -88,13 +89,13 @@ public class HabitEditorActivity extends AppCompatActivity {
 
     private void setupToolbar() {
         binding.toolbarEditor.setNavigationOnClickListener(v -> finish());
-        binding.toolbarEditor.setTitle(originalHabit == null ? "新增习惯" : "编辑习惯");
+        binding.toolbarEditor.setTitle(getString(originalHabit == null ? R.string.editor_title_new : R.string.editor_title_edit));
     }
 
     // 目标周期下拉项，索引即 weeklyTarget：0=每天，1..6=每周 N 次
-    private static final String[] GOAL_OPTIONS = {
-            "每天", "每周 1 次", "每周 2 次", "每周 3 次", "每周 4 次", "每周 5 次", "每周 6 次"
-    };
+    private String[] goalOptions() {
+        return getResources().getStringArray(R.array.weekly_target_options);
+    }
 
     private void setupCategoryDropdown() {
         List<String> categories = new ArrayList<>(HabitUtils.categories());
@@ -110,21 +111,23 @@ public class HabitEditorActivity extends AppCompatActivity {
         }
 
         // 目标周期下拉
+        String[] goalOptions = goalOptions();
         ArrayAdapter<String> goalAdapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_dropdown_item_1line, GOAL_OPTIONS);
+                this, android.R.layout.simple_dropdown_item_1line, goalOptions);
         binding.actEditorGoal.setAdapter(goalAdapter);
         int target = originalHabit == null ? 0 : originalHabit.getWeeklyTarget();
-        if (target < 0 || target >= GOAL_OPTIONS.length) {
+        if (target < 0 || target >= goalOptions.length) {
             target = 0;
         }
-        binding.actEditorGoal.setText(GOAL_OPTIONS[target], false);
+        binding.actEditorGoal.setText(goalOptions[target], false);
     }
 
     /** 从下拉框文本解析出 weeklyTarget（匹配不到则按每天=0）。 */
     private int readWeeklyTarget() {
         String selected = String.valueOf(binding.actEditorGoal.getText()).trim();
-        for (int i = 0; i < GOAL_OPTIONS.length; i++) {
-            if (GOAL_OPTIONS[i].equals(selected)) {
+        String[] goalOptions = goalOptions();
+        for (int i = 0; i < goalOptions.length; i++) {
+            if (goalOptions[i].equals(selected)) {
                 return i;
             }
         }
@@ -138,7 +141,7 @@ public class HabitEditorActivity extends AppCompatActivity {
             }
             String copied = repository.copyGalleryImage(uri);
             if (copied == null) {
-                Toast.makeText(this, "图片选择失败", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.toast_image_pick_failed, Toast.LENGTH_SHORT).show();
             } else {
                 updateImage(copied);
             }
@@ -164,7 +167,7 @@ public class HabitEditorActivity extends AppCompatActivity {
                     if (granted) {
                         launchCamera();
                     } else {
-                        Toast.makeText(this, "需要相机权限才能拍照", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, R.string.toast_camera_permission_required, Toast.LENGTH_SHORT).show();
                     }
                 });
     }
@@ -290,7 +293,7 @@ public class HabitEditorActivity extends AppCompatActivity {
         String reminderTime = String.valueOf(binding.etEditorReminderTime.getText()).trim();
 
         if (title.isEmpty() || content.isEmpty()) {
-            Toast.makeText(this, "请先填写标题和内容", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_fill_title_content, Toast.LENGTH_SHORT).show();
             return;
         }
         if (category.isEmpty()) {
