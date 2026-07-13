@@ -54,7 +54,7 @@ public class ReminderReceiver extends BroadcastReceiver {
                 }
 
                 String title = habit != null ? habit.getTitle() : fallbackTitle;
-                String message = buildMessage(habit, fallbackContent);
+                String message = buildMessage(appContext, habit, fallbackContent);
 
                 Intent openIntent = new Intent(appContext, MainActivity.class)
                         .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -67,7 +67,8 @@ public class ReminderReceiver extends BroadcastReceiver {
 
                 NotificationCompat.Builder builder = new NotificationCompat.Builder(appContext, CHANNEL_ID)
                         .setSmallIcon(R.mipmap.ic_launcher)
-                        .setContentTitle(isBlank(title) ? "习惯提醒" : "习惯提醒：" + title)
+                        .setContentTitle(isBlank(title) ? appContext.getString(R.string.notif_title_default)
+                                : appContext.getString(R.string.notif_title_with_habit, title))
                         .setContentText(message)
                         .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
                         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -95,9 +96,9 @@ public class ReminderReceiver extends BroadcastReceiver {
      * - 每周 N 次型且本周已达标：报喜，不催打卡；未达标则显示进度；
      * - 每天型：今天已打卡轻提示；昨天断签温和补救；否则按连续天数鼓励。
      */
-    private String buildMessage(HabitItem habit, String fallbackContent) {
+    private String buildMessage(Context context, HabitItem habit, String fallbackContent) {
         if (habit == null) {
-            return isBlank(fallbackContent) ? "该去完成今天的打卡了。" : fallbackContent;
+            return isBlank(fallbackContent) ? context.getString(R.string.reminder_default) : fallbackContent;
         }
         java.util.List<String> dates = habit.getCompletedDates();
         String today = java.time.LocalDate.now().toString();
@@ -110,26 +111,26 @@ public class ReminderReceiver extends BroadcastReceiver {
             int done = com.streak.app.util.HabitUtils.weeklyDoneCount(habit);
             int target = habit.getWeeklyTarget();
             if (done >= target) {
-                return "本周目标已完成（" + done + "/" + target + "），做得很棒，放松一下也没关系 🎉";
+                return context.getString(R.string.reminder_weekly_done, done, target);
             }
             if (doneToday) {
-                return "今天已打卡，本周进度 " + done + "/" + target + "，继续保持 👏";
+                return context.getString(R.string.reminder_weekly_today_done, done, target);
             }
-            return "本周还差 " + (target - done) + " 次达标（当前 " + done + "/" + target + "），今天来一笔吧 💪";
+            return context.getString(R.string.reminder_weekly_progress, target - done, done, target);
         }
 
         if (doneToday) {
-            return "今天已经打过卡啦，继续保持这份坚持 👏";
+            return context.getString(R.string.reminder_daily_today_done);
         }
         if (!doneYesterday) {
             // 昨天断了：温和补救，不指责
-            return "昨天断签了，别灰心，今天补上一笔，重新开始也很棒 💪";
+            return context.getString(R.string.reminder_daily_missed_yesterday);
         }
         int streak = com.streak.app.util.HabitUtils.currentStreak(dates);
         if (streak > 0) {
-            return "已经连续坚持 " + streak + " 天，今天打卡别让它中断哦 🔥";
+            return context.getString(R.string.reminder_daily_streak, streak);
         }
-        return isBlank(fallbackContent) ? "该去完成今天的打卡了。" : fallbackContent;
+        return isBlank(fallbackContent) ? context.getString(R.string.reminder_default) : fallbackContent;
     }
 
     private void createChannel(Context context) {
@@ -142,10 +143,10 @@ public class ReminderReceiver extends BroadcastReceiver {
         }
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "习惯提醒",
+                context.getString(R.string.notif_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT
         );
-        channel.setDescription("每日打卡提醒通知");
+        channel.setDescription(context.getString(R.string.notif_channel_desc));
         manager.createNotificationChannel(channel);
     }
 
