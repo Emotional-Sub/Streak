@@ -22,7 +22,7 @@
             android:id="@+id/tvTemplateTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="模板名称"
+            android:text="@string/template_title_placeholder"
             android:textColor="@color/streak_ink"
             android:textSize="16sp"
             android:textStyle="bold" />
@@ -32,7 +32,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="模板描述"
+            android:text="@string/template_desc_placeholder"
             android:textColor="@color/streak_muted"
             android:textSize="13sp" />
     </LinearLayout>
