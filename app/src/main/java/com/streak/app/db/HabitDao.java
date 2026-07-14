@@ -46,12 +46,27 @@ public interface HabitDao {
     @Query("DELETE FROM habits WHERE id = :id")
     void deleteById(long id);
 
+    /**
+     * 按 id 删除，但限定归属账号：id 是全表主键，只按 id 删存在跨账号误删的隐患，
+     * 加 ownerUsername 过滤保证只能删自己名下的习惯。
+     */
+    @Query("DELETE FROM habits WHERE id = :id AND ownerUsername = :owner")
+    void deleteByIdForOwner(long id, String owner);
+
     @Query("DELETE FROM habits")
     void clear();
 
     /** 只清空某账号的习惯（删号时用，不动其它账号数据）。 */
     @Query("DELETE FROM habits WHERE ownerUsername = :owner")
     void clearByOwner(String owner);
+
+    /**
+     * 账号改名时把该账号名下所有习惯的归属迁移到新用户名。
+     * 习惯靠 ownerUsername 归属，若改名不同步这里，getByOwner(新名) 会查不到旧习惯，
+     * 造成用户改名后自己的习惯「凭空消失」（变成永远查不出的孤儿数据）。
+     */
+    @Query("UPDATE habits SET ownerUsername = :newOwner WHERE ownerUsername = :oldOwner")
+    void updateOwner(String oldOwner, String newOwner);
 
     /**
      * 用给定列表整体替换某账号的习惯：先删该账号旧数据，再批量写入。
