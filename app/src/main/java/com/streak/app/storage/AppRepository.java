@@ -351,6 +351,11 @@ public class AppRepository {
             }
             applyHashedPassword(target, newPassword);
         }
+        // 改名后必须把该账号名下所有习惯的归属同步到新用户名，
+        // 否则 readHabits() 走 getByOwner(新名) 会查不到旧习惯，用户会以为数据全没了。
+        if (!oldUsername.equals(newUsername)) {
+            habitDao.updateOwner(oldUsername, newUsername);
+        }
         saveAccounts(accounts);
 
         // 同步登录态：当前用户名、记住的用户名（不再持久化任何密码）
@@ -488,10 +493,15 @@ public class AppRepository {
     }
 
     /**
-     * 按 id 删除单个习惯。同样只动一行，不整表覆盖，避免并发丢更新。
+     * 按 id 删除单个习惯，并限定归属为当前账号。同样只动一行，不整表覆盖，避免并发丢更新。
+     * 带 owner 过滤是数据隔离的防御措施：即便传入其它账号的 id 也删不到，不会跨账号误删。
      */
     public void deleteHabitById(long habitId) {
-        habitDao.deleteById(habitId);
+        String owner = getCurrentUser();
+        if (owner == null || owner.isEmpty()) {
+            return;
+        }
+        habitDao.deleteByIdForOwner(habitId, owner);
     }
 
     public File exportBackup() {
