@@ -34,12 +34,20 @@ public class BadgeWallActivity extends AppCompatActivity {
 
         binding.toolbarBadgeWall.setNavigationOnClickListener(v -> finish());
 
+        // 读习惯涉及读盘，放后台线程算勋章，回主线程渲染，避免在 onCreate 阻塞 UI（大数据量会卡/ANR）
         AppRepository repository = new AppRepository(this);
-        List<Badge> badges = BadgeUtils.evaluate(repository.readHabits());
-        int unlocked = BadgeUtils.unlockedCount(badges);
-        binding.tvBadgeWallSummary.setText(getString(R.string.badge_wall_summary, unlocked, badges.size()));
-
-        renderGrid(badges);
+        new Thread(() -> {
+            final List<Badge> badges = BadgeUtils.evaluate(repository.readHabits());
+            final int unlocked = BadgeUtils.unlockedCount(badges);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                binding.tvBadgeWallSummary.setText(
+                        getString(R.string.badge_wall_summary, unlocked, badges.size()));
+                renderGrid(badges);
+            });
+        }).start();
     }
 
     private void renderGrid(List<Badge> badges) {
