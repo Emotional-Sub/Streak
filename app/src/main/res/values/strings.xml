@@ -220,6 +220,28 @@
     <string name="stat_row_label_placeholder">标签</string>
     <string name="stat_row_value_placeholder">值</string>
 
+    <!-- 智能洞察：基于打卡数据的轻量分析 -->
+    <string name="stats_insights_title">智能洞察</string>
+    <string name="stats_insights_subtitle">根据你的打卡记录自动分析</string>
+    <string name="insight_most_consistent_label">最能坚持</string>
+    <string name="insight_most_consistent_value">%1$s（最长连续 %2$d 天）</string>
+    <string name="insight_active_weekday_label">最活跃的一天</string>
+    <string name="insight_active_weekday_value">%1$s（共 %2$d 次打卡）</string>
+    <string name="insight_stale_label">需要关注</string>
+    <string name="insight_stale_value">%1$s 已 %2$d 天没打卡</string>
+    <string name="insight_stale_never_value">%1$s 还没开始打卡</string>
+    <string name="insight_all_on_track">所有习惯都跟得上，继续保持 👏</string>
+    <string name="insight_empty">积累几天打卡后，这里会出现专属分析</string>
+
+    <!-- 星期名（下标对齐 DayOfWeek：1=周一 ... 7=周日） -->
+    <string name="weekday_monday">周一</string>
+    <string name="weekday_tuesday">周二</string>
+    <string name="weekday_wednesday">周三</string>
+    <string name="weekday_thursday">周四</string>
+    <string name="weekday_friday">周五</string>
+    <string name="weekday_saturday">周六</string>
+    <string name="weekday_sunday">周日</string>
+
     <!-- ================= 勋章墙 ================= -->
     <string name="badge_wall_title">勋章墙</string>
     <string name="badge_wall_summary_placeholder">已点亮 0 / 0 枚勋章</string>
