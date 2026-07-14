@@ -53,6 +53,7 @@ import com.streak.app.storage.AppRepository;
 import com.streak.app.widget.StreakWidgetProvider;
 import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.BadgeUtils;
+import com.streak.app.util.HabitAnalytics;
 import com.streak.app.util.ShareCardGenerator;
 import com.streak.app.util.HabitQrCodec;
 import com.streak.app.util.HabitUtils;
@@ -670,6 +671,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
         addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_reminder_enabled_label), String.valueOf(reminderCount));
 
+        updateInsights();
+
         statsBinding.layoutCategoryStats.removeAllViews();
         if (allHabits.isEmpty()) {
             statsBinding.tvEmptyStats.setVisibility(View.VISIBLE);
@@ -1194,6 +1197,69 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         rowBinding.tvStatLabel.setText(label);
         rowBinding.tvStatValue.setText(value);
         container.addView(rowBinding.getRoot());
+    }
+
+    /**
+     * 填充统计页「智能洞察」卡片：最能坚持的习惯、打卡最活跃的星期几、断卡预警。
+     * 全部基于 {@link HabitAnalytics} 对现有打卡数据的聚合，无额外存储。
+     * 无习惯时隐藏整张卡片（与总览的空态一致）。
+     */
+    private void updateInsights() {
+        statsBinding.layoutInsights.removeAllViews();
+        if (allHabits.isEmpty()) {
+            statsBinding.cardInsights.setVisibility(View.GONE);
+            return;
+        }
+        statsBinding.cardInsights.setVisibility(View.VISIBLE);
+
+        // 最能坚持：历史最长连续最大者
+        HabitItem consistent = HabitAnalytics.mostConsistent(allHabits);
+        if (consistent != null) {
+            int longest = HabitUtils.longestStreak(consistent.getCompletedDates());
+            addStatRow(statsBinding.layoutInsights,
+                    getString(R.string.insight_most_consistent_label),
+                    getString(R.string.insight_most_consistent_value, consistent.getTitle(), longest));
+        }
+
+        // 最活跃的星期几
+        int weekday = HabitAnalytics.mostActiveWeekday(allHabits);
+        if (weekday > 0) {
+            int[] buckets = HabitAnalytics.checkInsByWeekday(allHabits);
+            addStatRow(statsBinding.layoutInsights,
+                    getString(R.string.insight_active_weekday_label),
+                    getString(R.string.insight_active_weekday_value,
+                            weekdayName(weekday), buckets[weekday - 1]));
+        }
+
+        // 断卡预警：距今未打卡最久的一个（达到阈值才提醒）
+        List<HabitItem> stale = HabitAnalytics.staleHabits(allHabits);
+        if (stale.isEmpty()) {
+            addStatRow(statsBinding.layoutInsights,
+                    getString(R.string.insight_stale_label),
+                    getString(R.string.insight_all_on_track));
+        } else {
+            HabitItem worst = stale.get(0);
+            int gap = HabitAnalytics.daysSinceLastCheckIn(worst);
+            String value = gap == Integer.MAX_VALUE
+                    ? getString(R.string.insight_stale_never_value, worst.getTitle())
+                    : getString(R.string.insight_stale_value, worst.getTitle(), gap);
+            addStatRow(statsBinding.layoutInsights,
+                    getString(R.string.insight_stale_label), value);
+        }
+    }
+
+    /** 星期序号(1=周一 ... 7=周日，对齐 DayOfWeek)转本地化名称。越界返回空串。 */
+    private String weekdayName(int isoDay) {
+        switch (isoDay) {
+            case 1: return getString(R.string.weekday_monday);
+            case 2: return getString(R.string.weekday_tuesday);
+            case 3: return getString(R.string.weekday_wednesday);
+            case 4: return getString(R.string.weekday_thursday);
+            case 5: return getString(R.string.weekday_friday);
+            case 6: return getString(R.string.weekday_saturday);
+            case 7: return getString(R.string.weekday_sunday);
+            default: return "";
+        }
     }
 
     private String getText(TextView textView) {
