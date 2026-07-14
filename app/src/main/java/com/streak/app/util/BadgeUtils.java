@@ -28,15 +28,19 @@ public final class BadgeUtils {
         boolean anyWithPhoto = false;
         Set<String> categories = new HashSet<>();
         int todayCompleted = 0;
-        String today = HabitUtils.today();
         for (HabitItem item : habits) {
             // 勋章看历史最长连续，断卡后已达成的成就不再熄灭
             bestStreak = Math.max(bestStreak, HabitUtils.longestStreak(item.getCompletedDates()));
             if (item.getImageUri() != null && !item.getImageUri().trim().isEmpty()) {
                 anyWithPhoto = true;
             }
-            categories.add(item.getCategory());
-            if (item.getCompletedDates().contains(today)) {
+            // 分类可能为 null，null 混进集合会虚增 size 导致「覆盖 5 个分类」误点亮
+            if (item.getCategory() != null && !item.getCategory().trim().isEmpty()) {
+                categories.add(item.getCategory());
+            }
+            // 用全局统一完成口径：每周 N 次型只要滚动 7 天达标即算今日完成，
+            // 与 App 其它页面一致，否则「今日全勤」永远因未在今天当日打卡而无法点亮
+            if (HabitUtils.isCompletedForPeriod(item)) {
                 todayCompleted++;
             }
         }
