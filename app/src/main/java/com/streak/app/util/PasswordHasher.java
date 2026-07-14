@@ -47,7 +47,7 @@ public final class PasswordHasher {
      * 常量时间比较，避免计时侧信道。
      */
     public static boolean verify(String password, String saltBase64, String expectedHashBase64) {
-        if (saltBase64 == null || expectedHashBase64 == null) {
+        if (password == null || saltBase64 == null || expectedHashBase64 == null) {
             return false;
         }
         String actual = hash(password, saltBase64);
