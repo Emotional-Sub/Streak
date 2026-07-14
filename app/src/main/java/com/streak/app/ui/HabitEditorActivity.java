@@ -57,6 +57,14 @@ public class HabitEditorActivity extends AppCompatActivity {
         editingHabitId = getIntent().getLongExtra(EXTRA_HABIT_ID, -1L);
         originalHabit = editingHabitId > 0 ? repository.findHabitById(editingHabitId) : null;
 
+        // 意图编辑（带了有效 id）但习惯已不存在（可能已被删除/是过期引用）：
+        // 直接提示并退出，避免静默地生成新 id 建一条重复习惯。
+        if (editingHabitId > 0 && originalHabit == null) {
+            Toast.makeText(this, R.string.toast_habit_not_found, Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+
         setupToolbar();
         setupCategoryDropdown();
         setupActivityResultLaunchers();
