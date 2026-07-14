@@ -26,6 +26,8 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         void onShare(HabitItem item);
 
         void onDelete(HabitItem item);
+
+        void onOpenDetail(HabitItem item);
     }
 
     private static final int TYPE_SECTION = 0;
@@ -198,6 +200,8 @@ public class HabitAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             binding.btnHabitEdit.setOnClickListener(v -> callback.onEdit(item));
             binding.btnHabitShare.setOnClickListener(v -> callback.onShare(item));
             binding.btnHabitDelete.setOnClickListener(v -> callback.onDelete(item));
+            // 点击卡片主体（非操作按钮）进入习惯详情页
+            binding.getRoot().setOnClickListener(v -> callback.onOpenDetail(item));
         }
     }
 }
