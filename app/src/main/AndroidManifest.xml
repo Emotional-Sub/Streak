@@ -81,6 +81,11 @@
             android:theme="@style/Theme.Streak" />
 
         <activity
+            android:name=".ui.HabitDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Streak" />
+
+        <activity
             android:name=".ui.ShareReportActivity"
             android:exported="false"
             android:theme="@style/Theme.Streak" />
