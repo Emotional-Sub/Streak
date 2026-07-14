@@ -70,6 +70,7 @@ public class AppRepository {
     private final File imageDir;
     private final File backupDir;
     private final ReminderScheduler reminderScheduler;
+    private final StreakDatabase database;
     private final HabitDao habitDao;
     private final UserDao userDao;
 
@@ -83,7 +84,7 @@ public class AppRepository {
         this.imageDir.mkdirs();
         this.backupDir.mkdirs();
         this.reminderScheduler = new ReminderScheduler(this.context);
-        StreakDatabase database = StreakDatabase.getInstance(this.context);
+        this.database = StreakDatabase.getInstance(this.context);
         this.habitDao = database.habitDao();
         this.userDao = database.userDao();
         purgeLegacyPlaintextPassword();
@@ -619,11 +620,18 @@ public class AppRepository {
     }
 
     /**
-     * 从 ZIP 备份恢复：先把所有条目读入内存并校验 habits.json 可解析，
-     * 全部通过后再落地图片、改写习惯/账号，避免「图片已覆盖但 json 解析失败」无法回滚。
+     * 从 ZIP 备份恢复。事务性保证：
+     * 1) 先把所有条目读入内存并校验 habits.json 可解析；
+     * 2) 落地图片，记录「本次新建」的文件以便失败时回滚（不误删备份前已存在的同名图片）；
+     * 3) 在内存里算好最终的 habits + accounts（此时才能按已落地的图片重映射路径）；
+     * 4) 用 {@link StreakDatabase#runInTransaction} 把两张表的整表替换绑成一个原子提交——
+     *    要么习惯与账号一起更新成功，要么一起回滚，杜绝「习惯已替换但账号写入失败」的半成品状态；
+     * 5) 事务抛异常时，Room 自动回滚 DB，本方法再删掉本次新写的图片，使磁盘状态一并复原。
      * 返回是否成功。
      */
     public boolean importBackup(Uri zipUri) {
+        // 本次新落地的图片文件，供失败回滚时删除（只删新建的，不动备份前已存在的同名文件）
+        List<File> newlyWrittenImages = new ArrayList<>();
         try (InputStream rawInput = context.getContentResolver().openInputStream(zipUri)) {
             if (rawInput == null) {
                 return false;
@@ -672,32 +680,36 @@ public class AppRepository {
                 return false;
             }
 
-            // 校验通过，开始落地图片
+            // 校验通过，落地图片。记录「本次新建」的文件（原本不存在者），失败时据此回滚。
             for (Map.Entry<String, byte[]> img : images.entrySet()) {
                 File out = new File(imageDir, img.getKey());
                 // 规范化路径，确保仍在 imageDir 内（防 Zip Slip）
                 if (!out.getCanonicalPath().startsWith(imageDir.getCanonicalPath() + File.separator)) {
                     continue;
                 }
+                boolean existedBefore = out.exists();
                 try (FileOutputStream fos = new FileOutputStream(out)) {
                     fos.write(img.getValue());
                 }
+                if (!existedBefore) {
+                    newlyWrittenImages.add(out);
+                }
             }
 
-            // 还原习惯：备份是整机全量（含各账号习惯），故整表替换而非按当前账号 scoped 写入
-            // （登录页未登录也能触发导入）。同时把图片路径重映射到本机 imageDir/<原文件名>，
-            // 并给缺归属的旧备份数据补上演示账号 student，保持数据隔离不被破坏。
-            List<HabitItem> habits = backup.getHabits();
+            // 在内存里备好最终的习惯列表（图片已落地，可安全重映射路径）。
+            // 备份是整机全量（含各账号习惯），故整表替换而非按当前账号 scoped 写入
+            // （登录页未登录也能触发导入）。缺归属的旧备份数据补上演示账号 student，保持数据隔离。
+            final List<HabitItem> habits = backup.getHabits();
             for (HabitItem habit : habits) {
                 habit.setImageUri(remapImageUri(habit.getImageUri()));
                 if (habit.getOwnerUsername() == null || habit.getOwnerUsername().isEmpty()) {
                     habit.setOwnerUsername("student");
                 }
             }
-            habitDao.replaceAll(habits);
 
-            // 还原账号：同名账号更新资料+凭据；已删除（不存在）的账号则重建，
-            // 使删号后导入能用原用户名+原密码登回。
+            // 在内存里算好最终账号列表：同名账号只更新展示资料（绝不覆盖凭据），
+            // 已删除（不存在）的账号则连凭据一并重建，使删号后导入能用原密码登回。
+            final List<UserAccount> finalAccounts;
             if (accountsJson != null) {
                 Type type = new TypeToken<List<UserAccount>>() {}.getType();
                 List<UserAccount> imported = gson.fromJson(
@@ -738,14 +750,32 @@ public class AppRepository {
                             current.add(restored);
                         }
                     }
-                    saveAccounts(current);
+                    finalAccounts = current;
+                } else {
+                    finalAccounts = null;
                 }
+            } else {
+                finalAccounts = null;
             }
+
+            // 原子提交：习惯 + 账号两张表在同一事务里整表替换。
+            // 中途任一步抛异常，Room 回滚整笔事务，DB 停留在导入前状态。
+            database.runInTransaction(() -> {
+                habitDao.replaceAll(habits);
+                if (finalAccounts != null) {
+                    saveAccounts(finalAccounts);
+                }
+            });
 
             // 重建提醒
             rescheduleAllReminders();
             return true;
         } catch (Exception e) {
+            // DB 已由事务回滚；再删掉本次新写的图片，使磁盘状态一并复原，不留孤儿文件。
+            for (File orphan : newlyWrittenImages) {
+                //noinspection ResultOfMethodCallIgnored
+                orphan.delete();
+            }
             return false;
         }
     }
