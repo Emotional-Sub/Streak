@@ -1491,4 +1491,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 })
                 .show();
     }
+
+    @Override
+    public void onOpenDetail(HabitItem item) {
+        // 点击卡片主体进入只读详情页；详情页不改数据，无需 launcher 回传结果。
+        startActivity(HabitDetailActivity.newIntent(this, item.getId()));
+    }
 }
