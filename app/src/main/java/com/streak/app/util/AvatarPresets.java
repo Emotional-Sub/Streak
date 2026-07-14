@@ -49,7 +49,11 @@ public final class AvatarPresets {
         return 0;
     }
 
+    /** 第 index 个预置头像的 drawable 资源 id；越界返回第一个，避免调用方传入陈旧索引时崩溃。 */
     public static int drawableAt(int index) {
+        if (index < 0 || index >= DRAWABLES.length) {
+            return DRAWABLES[0];
+        }
         return DRAWABLES[index];
     }
 }
