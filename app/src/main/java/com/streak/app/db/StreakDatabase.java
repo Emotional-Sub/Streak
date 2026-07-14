@@ -71,4 +71,19 @@ public abstract class StreakDatabase extends RoomDatabase {
         }
         return instance;
     }
+
+    /**
+     * 仅供单测使用：关闭并清空单例，使下一次 getInstance() 重建全新数据库。
+     * Robolectric 不会在测试方法间重置静态字段，若不清空，前一用例写入的数据会串到后一用例。
+     * 生产代码不应调用。
+     */
+    @androidx.annotation.VisibleForTesting
+    public static void resetForTest() {
+        synchronized (StreakDatabase.class) {
+            if (instance != null && instance.isOpen()) {
+                instance.close();
+            }
+            instance = null;
+        }
+    }
 }
