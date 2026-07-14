@@ -34,8 +34,10 @@ public class RegisterActivity extends AppCompatActivity {
 
     private void attemptRegister() {
         String username = text(binding.etRegisterUsername);
-        String password = text(binding.etRegisterPassword);
-        String confirm = text(binding.etRegisterConfirmPassword);
+        // 密码不做 trim：trim 会悄悄改掉用户选定的凭据，且与 ProfileEditActivity
+        // 改密码处（不 trim）不一致，导致同一串密码在两个入口的登录结果不同
+        String password = String.valueOf(binding.etRegisterPassword.getText());
+        String confirm = String.valueOf(binding.etRegisterConfirmPassword.getText());
 
         if (username.isEmpty() || password.isEmpty()) {
             showError(getString(R.string.toast_username_password_empty));
