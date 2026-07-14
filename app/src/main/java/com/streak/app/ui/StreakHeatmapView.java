@@ -60,13 +60,12 @@ public class StreakHeatmapView extends View {
     /** 传入「日期 -> 打卡次数」的映射，内部只读取近 WEEKS 周窗口。 */
     public void setData(Map<String, Integer> dateCounts) {
         counts.clear();
-        maxCount = 0;
         if (dateCounts != null) {
             counts.putAll(dateCounts);
-            for (int v : dateCounts.values()) {
-                maxCount = Math.max(maxCount, v);
-            }
         }
+        // maxCount 在 onDraw 里按实际绘制的可见窗口计算，
+        // 不能用全量数据的最大值：窗口外的历史峰值会拉高归一化基准，
+        // 让近期所有色块偏浅，误导对最近强度的判断。
         requestLayout();
         invalidate();
     }
@@ -104,6 +103,20 @@ public class StreakHeatmapView extends View {
         int todayRow = today.getDayOfWeek() == DayOfWeek.SUNDAY ? 0 : today.getDayOfWeek().getValue();
         // 最后一列第 0 行对应的日期（本周周日）
         LocalDate lastColSunday = today.minusDays(todayRow);
+
+        // 归一化基准只统计将要绘制的可见窗口内、且不晚于今天的计数，
+        // 保证颜色深浅反映近期强度而非久远的历史峰值
+        maxCount = 0;
+        for (int col = 0; col < WEEKS; col++) {
+            LocalDate colSunday = lastColSunday.minusWeeks(WEEKS - 1 - col);
+            for (int row = 0; row < DAYS_PER_WEEK; row++) {
+                LocalDate date = colSunday.plusDays(row);
+                if (date.isAfter(today)) {
+                    continue;
+                }
+                maxCount = Math.max(maxCount, count(date));
+            }
+        }
 
         for (int col = 0; col < WEEKS; col++) {
             // 从最早的一列开始画：最早列 = 最后一列往前推 (WEEKS-1-col) 周
