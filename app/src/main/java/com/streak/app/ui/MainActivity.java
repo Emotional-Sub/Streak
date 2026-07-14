@@ -171,6 +171,17 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // 应用跨午夜后回到前台：缓存的 today 已停留在昨天，会导致今日高亮/汇总错位。
+        // 仅当已登录（仪表盘可见）且日期确实翻天时刷新，避免无谓重绘。
+        if (binding.dashboardRoot.getVisibility() == View.VISIBLE
+                && !HabitUtils.today().equals(today)) {
+            refreshDashboardData();
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         // 清理已投递但未执行的主线程回调，避免它们在 Activity 销毁后触碰已失效的视图/上下文
         mainHandler.removeCallbacksAndMessages(null);
@@ -1346,18 +1357,21 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
      * 写入/撤销今日打卡，并可附带当天备注。读写文件放后台线程（打卡高频，避免卡主线程）。
      */
     private void writeTodayCheckIn(long habitId, boolean add, String note) {
+        // 取当刻的新鲜日期，不用缓存的 today 字段：应用跨午夜仍在前台时，
+        // 缓存字段可能停留在昨天，会把今天的打卡错记到昨天。
+        final String todayDate = HabitUtils.today();
         runInBackground(() -> {
             HabitItem target = repository.findHabitById(habitId);
             if (target != null) {
                 List<String> completedDates = new ArrayList<>(target.getCompletedDates());
                 if (add) {
-                    if (!completedDates.contains(today)) {
-                        completedDates.add(today);
+                    if (!completedDates.contains(todayDate)) {
+                        completedDates.add(todayDate);
                     }
-                    target.setNote(today, note);
+                    target.setNote(todayDate, note);
                 } else {
-                    completedDates.remove(today);
-                    target.setNote(today, null); // 清除当天备注
+                    completedDates.remove(todayDate);
+                    target.setNote(todayDate, null); // 清除当天备注
                 }
                 target.setCompletedDates(completedDates);
                 repository.saveHabit(target);
