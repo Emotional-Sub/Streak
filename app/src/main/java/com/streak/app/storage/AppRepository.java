@@ -145,6 +145,10 @@ public class AppRepository {
                 }
                 if (habitDao.count() == 0 && !legacyHabits.isEmpty()) {
                     habitDao.upsertAll(legacyHabits);
+                    // 这些习惯归属 student，但旧 accounts.json 里未必有 student 账号
+                    //（用户可能改过用户名或删过 student）。若缺失，补一个默认演示账号，
+                    // 否则这些习惯会成为「登不进去的账号」名下的孤儿数据，用户永远看不到。
+                    ensureAccountExists("student");
                 }
                 archiveLegacyFile(habitsFile);
             } else if (habitDao.count() == 0) {
@@ -268,7 +272,18 @@ public class AppRepository {
     }
 
     public void logout() {
+        // 退出前取消本账号所有习惯的提醒：否则退出后旧账号的闹钟仍会按天续排、
+        // 通知照常弹出，甚至在换登其它账号后造成串扰。必须在清空 current_user 之前
+        // 读取，readHabits() 依赖 getCurrentUser() 定位当前账号的习惯。
+        cancelRemindersForCurrentUser();
         preferences.edit().putString(KEY_CURRENT_USER, "").apply();
+    }
+
+    /** 取消当前登录账号名下所有习惯的提醒闹钟（退出/切换账号时用）。 */
+    private void cancelRemindersForCurrentUser() {
+        for (HabitItem habit : readHabits()) {
+            reminderScheduler.cancel(habit.getId());
+        }
     }
 
     public String getSavedUsername() {
@@ -505,6 +520,26 @@ public class AppRepository {
         habitDao.deleteByIdForOwner(habitId, owner);
     }
 
+    /**
+     * 导出整机全量备份（ZIP）。
+     *
+     * <p><b>设计取舍：整机全量、非账号隔离。</b>备份刻意导出「本机所有账号」的习惯与资料，
+     * 而非仅当前登录账号。理由：① 导入可在登录页（未登录、无当前账号）触发，是本 App
+     * 「离线优先、无后端」的跨设备/重装迁移方案，未登录态下没有「当前账号」可界定范围；
+     * ② 删号后仍能用同一份备份把账号连凭据一起恢复并用原密码登回。</p>
+     *
+     * <p><b>安全权衡（答辩要点）：</b>正因为是整机全量，备份文件本身即包含所有账号的
+     * PBKDF2 哈希+盐（<b>绝不含明文密码</b>）。这带来两个已知且刻意接受的性质：</p>
+     * <ul>
+     *   <li>持有备份文件者可离线对哈希做暴力/字典破解——故 UI 层应提示用户妥善保管备份，
+     *       且 App 已设 allowBackup=false + 自定义 dataExtractionRules 阻止系统级备份外泄凭据。</li>
+     *   <li>导入侧做了防接管处理：{@link #importBackup} 对<b>已存在</b>的账号只更新展示资料
+     *       （昵称/签名/头像），<b>绝不覆盖其 passwordHash/salt</b>；凭据只在「重建已删除账号」
+     *       时写入。这样别人无法用一份构造的备份顶掉本机现有账号的密码。</li>
+     * </ul>
+     * <p>因此「备份跨账号」不是越权漏洞，而是本地迁移场景下的有意设计，配合导入侧的
+     * 凭据保护与系统备份关闭共同收口风险。</p>
+     */
     public File exportBackup() {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
         File zipFile = new File(backupDir, "streak_backup_" + timestamp + ".zip");
@@ -632,6 +667,9 @@ public class AppRepository {
     public boolean importBackup(Uri zipUri) {
         // 本次新落地的图片文件，供失败回滚时删除（只删新建的，不动备份前已存在的同名文件）
         List<File> newlyWrittenImages = new ArrayList<>();
+        // 被本次导入覆盖的同名旧图：覆盖前先把原文件挪到 .import_bak 临时副本，
+        // 成功后删除副本，失败时用副本还原——否则同名旧图被覆盖后无法恢复。
+        List<File[]> overwrittenBackups = new ArrayList<>();
         try (InputStream rawInput = context.getContentResolver().openInputStream(zipUri)) {
             if (rawInput == null) {
                 return false;
@@ -688,6 +726,15 @@ public class AppRepository {
                     continue;
                 }
                 boolean existedBefore = out.exists();
+                if (existedBefore) {
+                    // 覆盖同名旧图前，先把原文件挪到临时副本，供失败时还原。
+                    File bak = new File(out.getParentFile(), out.getName() + ".import_bak");
+                    //noinspection ResultOfMethodCallIgnored
+                    bak.delete(); // 清理可能残留的上次副本
+                    if (out.renameTo(bak)) {
+                        overwrittenBackups.add(new File[]{out, bak});
+                    }
+                }
                 try (FileOutputStream fos = new FileOutputStream(out)) {
                     fos.write(img.getValue());
                 }
@@ -767,14 +814,30 @@ public class AppRepository {
                 }
             });
 
+            // 导入成功：被覆盖的同名旧图已无需还原，删掉临时副本。
+            for (File[] pair : overwrittenBackups) {
+                //noinspection ResultOfMethodCallIgnored
+                pair[1].delete();
+            }
+
             // 重建提醒
             rescheduleAllReminders();
             return true;
         } catch (Exception e) {
-            // DB 已由事务回滚；再删掉本次新写的图片，使磁盘状态一并复原，不留孤儿文件。
+            // DB 已由事务回滚；再复原磁盘上的图片，使磁盘状态一并回到导入前，不留孤儿文件。
+            // 1) 删掉本次新写的图片（原本不存在的）。
             for (File orphan : newlyWrittenImages) {
                 //noinspection ResultOfMethodCallIgnored
                 orphan.delete();
+            }
+            // 2) 用临时副本还原被覆盖的同名旧图：先删掉本次写入的新内容，再把副本改回原名。
+            for (File[] pair : overwrittenBackups) {
+                File out = pair[0];
+                File bak = pair[1];
+                //noinspection ResultOfMethodCallIgnored
+                out.delete();
+                //noinspection ResultOfMethodCallIgnored
+                bak.renameTo(out);
             }
             return false;
         }
@@ -1016,6 +1079,24 @@ public class AppRepository {
         List<UserAccount> defaults = new ArrayList<>();
         defaults.add(student);
         return defaults;
+    }
+
+    /**
+     * 确保给定用户名的账号存在，缺失则补一个默认演示账号（密码 123456）。
+     * 用于旧数据迁移：迁来的习惯统一归属 student，但旧账号表里未必有 student，
+     * 补齐后这些习惯才有可登录的归属，不至于成为看不到的孤儿数据。
+     */
+    private void ensureAccountExists(String username) {
+        if (username == null || username.isEmpty()) {
+            return;
+        }
+        if (userDao.findByUsername(username) != null) {
+            return;
+        }
+        UserAccount account = new UserAccount();
+        account.setUsername(username);
+        applyHashedPassword(account, "123456");
+        userDao.upsert(account);
     }
 
     private void saveAccounts(List<UserAccount> accounts) {
