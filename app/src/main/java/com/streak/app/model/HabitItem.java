@@ -20,11 +20,17 @@ public class HabitItem {
     private String imageUri;
     private String category;
     private List<String> tags;
+    // 打卡日期/备注不再由 Room 持久化：v2->v3 已拆进规范化的 check_in_records 表。
+    // 这两个字段降为「内存派生视图」——AppRepository 读习惯时把该习惯的打卡记录聚合回填进来，
+    // 供既有约 90 处消费端（HabitUtils/HabitAnalytics/各 Activity/Adapter/备份）零改动继续使用。
+    // @Ignore 使 Room 不为其建列；Gson 仍会序列化（备份 habits.json 向后兼容旧版本 App 导入）。
+    @Ignore
     private List<String> completedDates;
     private boolean reminderEnabled;
     // 目标周期：0=每天，1..6=每周 N 次
     private int weeklyTarget;
-    // 每日打卡备注/心情：日期(yyyy-MM-dd) -> 文本
+    // 每日打卡备注/心情：日期(yyyy-MM-dd) -> 文本。同样降为内存派生视图，见上。
+    @Ignore
     private java.util.Map<String, String> notes;
     // 归属账号用户名：每个账号只看/改自己的习惯（数据隔离）。
     // 旧数据迁移时统一归给演示账号 student。
