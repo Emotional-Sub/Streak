@@ -121,6 +121,44 @@ public class AppRepositoryImageRollbackTest {
                 new File(imageDir, "pic.jpg.import_bak").exists());
     }
 
+    /**
+     * 备份副本无法创建时必须中止导入，绝不覆盖同名旧图。
+     *
+     * <p>历史 bug：{@code renameTo(bak)} 失败时代码仍继续 {@code FileOutputStream} 覆盖原图，
+     * 且没记录可回滚副本——一旦后续导入失败，旧图永久丢失。</p>
+     *
+     * <p>制造 renameTo 失败：在 {@code .import_bak} 目标路径预先放一个「非空目录」，
+     * 使 {@code bak.delete()} 与 {@code out.renameTo(bak)} 都失败（无法覆盖非空目录）。
+     * 此时导入应立即中止、返回 false，且同名旧图保持原始内容不被破坏。</p>
+     */
+    @Test
+    public void backupCopyFailure_abortsImport_andKeepsOriginalIntact() throws Exception {
+        byte[] original = "MUST-SURVIVE".getBytes(StandardCharsets.UTF_8);
+        File existing = new File(imageDir, "keep.jpg");
+        writeFile(existing, original);
+
+        // 在 .import_bak 目标路径放一个非空目录，令 delete() 和 renameTo() 都失败
+        File blockingBak = new File(imageDir, "keep.jpg.import_bak");
+        //noinspection ResultOfMethodCallIgnored
+        blockingBak.mkdirs();
+        writeFile(new File(blockingBak, "sentinel"), "x".getBytes(StandardCharsets.UTF_8));
+
+        File zip = File.createTempFile("copyfail", ".zip", context.getCacheDir());
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zip))) {
+            writeEntry(zos, "habits.json",
+                    "{\"exportedAt\":\"2026-01-01 10:00:00\",\"habits\":[]}"
+                            .getBytes(StandardCharsets.UTF_8));
+            writeEntry(zos, "images/keep.jpg",
+                    "SHOULD-NOT-BE-WRITTEN".getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertFalse("无法创建可回滚副本时导入应中止", repository.importBackup(Uri.fromFile(zip)));
+
+        // 关键断言：同名旧图未被覆盖，内容仍是原始字节
+        assertTrue("原图应仍在", existing.exists());
+        assertArrayEquals("副本创建失败时绝不能覆盖同名旧图", original, readFile(existing));
+    }
+
     // ---- 辅助 ----
 
     private void writeEntry(ZipOutputStream zos, String name, byte[] data) throws Exception {
