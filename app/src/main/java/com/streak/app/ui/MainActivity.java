@@ -268,6 +268,10 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     Toast.makeText(this, R.string.toast_importing, Toast.LENGTH_SHORT).show();
                     runInBackground(() -> {
                         boolean success = repository.importBackup(uri);
+                        // 导入会整表替换习惯，桌面小组件读的是同一份数据，成功后刷新一次
+                        if (success) {
+                            StreakWidgetProvider.refreshAll(getApplicationContext());
+                        }
                         postToUi(() -> {
                             Toast.makeText(
                                     this,
@@ -287,6 +291,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 result -> {
                     if (result.getResultCode() == RESULT_OK) {
                         refreshDashboardData();
+                        // 新增/编辑习惯会改变今日进度与习惯总数，同步刷新桌面小组件
+                        StreakWidgetProvider.refreshAll(getApplicationContext());
                     }
                 }
         );
@@ -442,7 +448,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
 
     private void attemptLogin() {
         String username = getText(binding.etLoginUsername);
-        String password = getText(binding.etLoginPassword);
+        // 密码不做 trim：注册/改密处都按原样（含首尾空格）保存并哈希，登录若 trim 会与
+        // 存库口径不一致，导致「带空格的密码注册后登录不上」。用户名仍 trim（注册也 trim）。
+        String password = String.valueOf(binding.etLoginPassword.getText());
 
         if (username.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, R.string.toast_input_username_password, Toast.LENGTH_SHORT).show();
@@ -456,6 +464,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             boolean ok = repository.validateLogin(username, password);
             if (ok) {
                 repository.saveLoginState(username, password, remember, username);
+                // 登录后重排本账号提醒：退出/切换账号时闹钟已被取消，未登录重启也不会排，
+                // 登录是恢复本账号提醒的统一时机。放在后台线程（读习惯 + 调度 IO）。
+                repository.rescheduleAllReminders();
+                // 登录后刷新桌面小组件：组件读的是当前账号数据，切换账号后需同步。
+                StreakWidgetProvider.refreshAll(getApplicationContext());
             }
             postToUi(() -> {
                 binding.btnLogin.setEnabled(true);
@@ -483,9 +496,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             return true;
         }
         if (itemId == R.id.action_logout) {
-            repository.logout();
+            // 退出要取消本账号提醒（读习惯 + 取消闹钟，属 IO），放后台线程；
+            // 先切回登录页给即时反馈，再在后台清理并刷新小组件。
             currentUser = "";
             showLoginPage();
+            runInBackground(() -> {
+                repository.logout();
+                StreakWidgetProvider.refreshAll(getApplicationContext());
+            });
             return true;
         }
         return false;
@@ -963,6 +981,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     // 删号涉及读写 JSON、取消闹钟、删图片，放后台线程避免阻塞 UI
                     runInBackground(() -> {
                         repository.deleteCurrentAccountAndData();
+                        // 删号已清空本账号习惯，刷新小组件避免残留已删账号的旧进度
+                        StreakWidgetProvider.refreshAll(getApplicationContext());
                         postToUi(() -> {
                             Toast.makeText(this, R.string.toast_account_deleted, Toast.LENGTH_SHORT).show();
                             showLoginPage();
@@ -1500,6 +1520,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                         repository.deleteHabitById(habitId);
                         repository.cancelReminder(habitId);
                         repository.deletePhoto(imageUri);
+                        // 删除习惯后同步刷新桌面小组件（进度/总数已变）
+                        StreakWidgetProvider.refreshAll(getApplicationContext());
                         postToUi(this::refreshDashboardData);
                     });
                 })
