@@ -22,3 +22,8 @@ release/
 *.keystore
 # 本地签名凭据（storePassword/keyPassword 等），严禁提交；见 keystore.properties.template
 keystore.properties
+
+# Robolectric 单测运行时在模块根目录落地的 Room 数据库文件（运行态，非源码）：
+# 曾被误提交为 v2 schema，导致后续版本升级后单测在此陈旧库上跑迁移而失败。严禁提交。
+app/streak.db
+app/streak.db-journal
