@@ -8,10 +8,12 @@ import androidx.core.content.FileProvider;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import com.streak.app.db.CheckInRecordDao;
 import com.streak.app.db.HabitDao;
 import com.streak.app.db.StreakDatabase;
 import com.streak.app.db.UserDao;
 import com.streak.app.model.CameraCaptureInfo;
+import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitBackup;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.UserAccount;
@@ -74,6 +76,7 @@ public class AppRepository {
     private final StreakDatabase database;
     private final HabitDao habitDao;
     private final UserDao userDao;
+    private final CheckInRecordDao checkInRecordDao;
 
     public AppRepository(Context context) {
         this.context = context.getApplicationContext();
@@ -88,6 +91,7 @@ public class AppRepository {
         this.database = StreakDatabase.getInstance(this.context);
         this.habitDao = database.habitDao();
         this.userDao = database.userDao();
+        this.checkInRecordDao = database.checkInRecordDao();
         purgeLegacyPlaintextPassword();
         initializeStorageIfNeeded();
     }
@@ -416,9 +420,17 @@ public class AppRepository {
         for (HabitItem habit : ownHabits) {
             reminderScheduler.cancel(habit.getId());
             deletePhoto(habit.getImageUri());
+            // 删除本账号各习惯打卡记录里附带的照片（与习惯自身 imageUri 独立）
+            deleteCheckInPhotos(habit.getId());
         }
         if (username != null && !username.isEmpty()) {
-            habitDao.clearByOwner(username);
+            // 打卡记录靠 habits 子查询定位归属，必须在删 habits 行之前先删记录。
+            // 事务保证「删记录」与「删习惯」一并成败，不留孤儿打卡记录。
+            final String owner = username;
+            database.runInTransaction(() -> {
+                checkInRecordDao.deleteByOwner(owner);
+                habitDao.clearByOwner(owner);
+            });
         }
 
         saveAccounts(remaining);
@@ -465,7 +477,44 @@ public class AppRepository {
             return new ArrayList<>();
         }
         List<HabitItem> habits = habitDao.getByOwner(owner);
-        return habits == null ? new ArrayList<>() : habits;
+        if (habits == null) {
+            return new ArrayList<>();
+        }
+        // 打卡真相源是 check_in_records 表；habits 行已不含 completedDates/notes 两列。
+        // 读出习惯后把各自的打卡记录聚合回填进内存派生字段，供既有约 90 处消费端零改动使用。
+        for (HabitItem habit : habits) {
+            aggregateCheckInsInto(habit);
+        }
+        return habits;
+    }
+
+    /**
+     * 把某习惯在 check_in_records 表里的打卡记录聚合回填进它的内存派生字段
+     * （completedDates / notes），使既有统计/展示代码无需改动即可继续读。
+     * 记录表是唯一真相源，此处只是「读时物化」出旧的两个视图字段。
+     */
+    private void aggregateCheckInsInto(HabitItem habit) {
+        if (habit == null) {
+            return;
+        }
+        List<CheckInRecord> records = checkInRecordDao.getByHabit(habit.getId());
+        List<String> dates = new ArrayList<>();
+        java.util.Map<String, String> notes = new java.util.HashMap<>();
+        if (records != null) {
+            for (CheckInRecord record : records) {
+                String date = record.getDate();
+                if (date == null || date.isEmpty()) {
+                    continue;
+                }
+                dates.add(date);
+                String note = record.getNote();
+                if (note != null && !note.trim().isEmpty()) {
+                    notes.put(date, note);
+                }
+            }
+        }
+        habit.setCompletedDates(dates);
+        habit.setNotes(notes);
     }
 
     public void writeHabits(List<HabitItem> habits) {
@@ -481,11 +530,22 @@ public class AppRepository {
                 habit.setOwnerUsername(owner);
             }
         }
-        habitDao.replaceAllForOwner(owner, scoped);
+        // 习惯行与打卡记录在同一事务里替换：先整表替换该账号的习惯，
+        // 再按每个习惯的内存派生字段（completedDates/notes）同步其打卡记录，
+        // 保证「习惯已换、记录未换」的半成品状态不会出现。
+        database.runInTransaction(() -> {
+            habitDao.replaceAllForOwner(owner, scoped);
+            for (HabitItem habit : scoped) {
+                syncCheckInsFrom(habit);
+            }
+        });
     }
 
     public HabitItem findHabitById(long habitId) {
-        return habitDao.findById(habitId);
+        HabitItem habit = habitDao.findById(habitId);
+        // 同 readHabits：把打卡记录聚合回填进内存派生字段，保证按 id 读出的习惯也带打卡数据。
+        aggregateCheckInsInto(habit);
+        return habit;
     }
 
     /**
@@ -512,7 +572,65 @@ public class AppRepository {
             if (habit.getOwnerUsername() == null || habit.getOwnerUsername().isEmpty()) {
                 habit.setOwnerUsername(getCurrentUser());
             }
-            habitDao.upsert(habit);
+            // 习惯行 upsert 与其打卡记录同步绑成一个事务：既有打卡 UI 走「读改写整条习惯」
+            // （toggleDateCheckIn/writeTodayCheckIn 改内存的 completedDates/notes 后调本方法），
+            // 这里据此把记录表同步到与派生字段一致，让旧写入路径零改动即落到规范化表。
+            database.runInTransaction(() -> {
+                habitDao.upsert(habit);
+                syncCheckInsFrom(habit);
+            });
+        }
+    }
+
+    /**
+     * 把某习惯内存派生字段（completedDates/notes）的状态同步进 check_in_records 表：
+     * 新增缺失日期的记录、删除已不在 completedDates 里的记录、更新备注。
+     *
+     * <p>关键：对仍保留的日期，<b>保留其已有的 mood/duration/photo</b>——既有打卡 UI 只改
+     * 日期与备注，若这里整表重建会把心情/耗时/照片抹掉。故按日期 diff 增量同步，
+     * 而非 clear + 重插。记录表是真相源，本方法是「旧视图字段 -> 真相源」的回写桥。</p>
+     */
+    private void syncCheckInsFrom(HabitItem habit) {
+        if (habit == null) {
+            return;
+        }
+        long habitId = habit.getId();
+        List<CheckInRecord> existing = checkInRecordDao.getByHabit(habitId);
+        java.util.Map<String, CheckInRecord> existingByDate = new java.util.HashMap<>();
+        if (existing != null) {
+            for (CheckInRecord record : existing) {
+                existingByDate.put(record.getDate(), record);
+            }
+        }
+
+        java.util.Set<String> targetDates = new java.util.LinkedHashSet<>();
+        List<String> completed = habit.getCompletedDates();
+        if (completed != null) {
+            for (String date : completed) {
+                if (date != null && !date.isEmpty()) {
+                    targetDates.add(date);
+                }
+            }
+        }
+
+        // 删除：已有记录但目标日期集合里没有的 -> 撤销打卡
+        for (String date : existingByDate.keySet()) {
+            if (!targetDates.contains(date)) {
+                checkInRecordDao.deleteByHabitAndDate(habitId, date);
+            }
+        }
+
+        // 新增/更新：对每个目标日期，保留旧记录的 mood/duration/photo，只覆盖 note。
+        for (String date : targetDates) {
+            String note = habit.getNote(date);
+            CheckInRecord record = existingByDate.get(date);
+            if (record == null) {
+                record = new CheckInRecord();
+                record.setHabitId(habitId);
+                record.setDate(date);
+            }
+            record.setNote(note == null || note.isEmpty() ? null : note);
+            checkInRecordDao.upsert(record);
         }
     }
 
@@ -525,7 +643,14 @@ public class AppRepository {
         if (owner == null || owner.isEmpty()) {
             return;
         }
-        habitDao.deleteByIdForOwner(habitId, owner);
+        // 无外键级联（见 CheckInRecord 说明），删习惯时显式清理其打卡记录，避免留孤儿记录。
+        // 事务保证「删习惯」与「删其记录」一并成败，不出现半清理状态。
+        database.runInTransaction(() -> {
+            int deleted = habitDao.deleteByIdForOwner(habitId, owner);
+            if (deleted > 0) {
+                checkInRecordDao.deleteByHabit(habitId);
+            }
+        });
     }
 
     /**
@@ -558,10 +683,21 @@ public class AppRepository {
         if (habits == null) {
             habits = new ArrayList<>();
         }
+        // 打卡真相源已是 check_in_records 表。为向后兼容旧版本 App（读 habits.json 的
+        // completedDates/notes），导出前把记录聚合回填进各习惯的这两个视图字段——
+        // 旧版本导入仍能拿到打卡日期与备注。心情/耗时/照片这类新字段旧版本无法表达，
+        // 故另存全保真的 check_in_records.json（见下），新版本导入优先用它。
+        for (HabitItem habit : habits) {
+            aggregateCheckInsInto(habit);
+        }
+        List<CheckInRecord> allRecords = checkInRecordDao.getAll();
+        if (allRecords == null) {
+            allRecords = new ArrayList<>();
+        }
         List<UserAccount> accounts = loadAccounts();
 
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFile))) {
-            // 1) 习惯 JSON（带导出时间）
+            // 1) 习惯 JSON（带导出时间；completedDates/notes 已回填，向后兼容旧版本）
             HabitBackup backup = new HabitBackup(
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
                     habits
@@ -574,12 +710,20 @@ public class AppRepository {
             writeZipEntry(zos, "accounts.json",
                     gson.toJson(sanitizeAccountsForExport(accounts)).getBytes(StandardCharsets.UTF_8));
 
-            // 3) 所有引用到的图片（习惯照片 + 头像），打包进 images/ 目录，文件名即原名
+            // 3) 打卡记录 JSON（全保真：含心情/耗时/照片）。新版本导入优先读它，
+            //    缺失时（旧备份）回退到 habits.json 的 completedDates/notes。
+            writeZipEntry(zos, "check_in_records.json",
+                    gson.toJson(allRecords).getBytes(StandardCharsets.UTF_8));
+
+            // 4) 所有引用到的图片（习惯照片 + 头像 + 打卡照片），打包进 images/ 目录，文件名即原名
             for (HabitItem habit : habits) {
                 addImageToZip(zos, habit.getImageUri());
             }
             for (UserAccount account : accounts) {
                 addImageToZip(zos, account.getAvatarUri());
+            }
+            for (CheckInRecord record : allRecords) {
+                addImageToZip(zos, record.getPhotoUri());
             }
         } catch (Exception e) {
             // 打包失败（磁盘满、写盘异常等）：删掉半成品文件并返回 null，
@@ -684,6 +828,7 @@ public class AppRepository {
             }
             byte[] habitsJson = null;
             byte[] accountsJson = null;
+            byte[] recordsJson = null;
             Map<String, byte[]> images = new HashMap<>();
 
             // 第一遍：全部读入内存，不写磁盘。累计条目数与解压字节，超上限即放弃（防 OOM）。
@@ -705,6 +850,8 @@ public class AppRepository {
                         habitsJson = readEntryBytes(zis, buffer, budget);
                     } else if ("accounts.json".equals(name)) {
                         accountsJson = readEntryBytes(zis, buffer, budget);
+                    } else if ("check_in_records.json".equals(name)) {
+                        recordsJson = readEntryBytes(zis, buffer, budget);
                     } else if (name.startsWith("images/")) {
                         String fileName = name.substring("images/".length());
                         if (isSafeImageName(fileName)) {
@@ -769,6 +916,44 @@ public class AppRepository {
 
             // 在内存里算好最终账号列表：同名账号只更新展示资料（绝不覆盖凭据），
             // 已删除（不存在）的账号则连凭据一并重建，使删号后导入能用原密码登回。
+            // 打卡记录：优先用全保真的 check_in_records.json；旧备份没有该文件时，
+            // 回退到从 habits 的 completedDates/notes 重建（只含日期与备注，无心情/耗时/照片）。
+            final List<CheckInRecord> finalRecords = new ArrayList<>();
+            if (recordsJson != null) {
+                Type recType = new TypeToken<List<CheckInRecord>>() {}.getType();
+                List<CheckInRecord> importedRecords = gson.fromJson(
+                        new String(recordsJson, StandardCharsets.UTF_8), recType);
+                if (importedRecords != null) {
+                    for (CheckInRecord record : importedRecords) {
+                        if (record == null || record.getDate() == null || record.getDate().isEmpty()) {
+                            continue;
+                        }
+                        record.setPhotoUri(remapImageUri(record.getPhotoUri()));
+                        record.setId(0);
+                        finalRecords.add(record);
+                    }
+                }
+            } else {
+                for (HabitItem habit : habits) {
+                    List<String> dates = habit.getCompletedDates();
+                    if (dates == null) {
+                        continue;
+                    }
+                    java.util.Set<String> seen = new java.util.HashSet<>();
+                    for (String date : dates) {
+                        if (date == null || date.isEmpty() || !seen.add(date)) {
+                            continue;
+                        }
+                        CheckInRecord record = new CheckInRecord();
+                        record.setHabitId(habit.getId());
+                        record.setDate(date);
+                        String note = habit.getNote(date);
+                        record.setNote(note == null || note.isEmpty() ? null : note);
+                        finalRecords.add(record);
+                    }
+                }
+            }
+
             final List<UserAccount> finalAccounts;
             if (accountsJson != null) {
                 Type type = new TypeToken<List<UserAccount>>() {}.getType();
@@ -831,6 +1016,10 @@ public class AppRepository {
             // 中途任一步抛异常，Room 回滚整笔事务，DB 停留在导入前状态。
             database.runInTransaction(() -> {
                 habitDao.replaceAll(habits);
+                checkInRecordDao.clear();
+                if (!finalRecords.isEmpty()) {
+                    checkInRecordDao.upsertAll(finalRecords);
+                }
                 if (finalAccounts != null) {
                     saveAccounts(finalAccounts);
                 }
@@ -973,6 +1162,20 @@ public class AppRepository {
                 target.delete();
             }
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 删除某习惯所有打卡记录里附带的照片文件（每天打卡可各自配一张，与习惯自身 imageUri 独立）。
+     * 删习惯/删号时调用，避免记录行删了但磁盘照片成孤儿文件。
+     */
+    private void deleteCheckInPhotos(long habitId) {
+        List<CheckInRecord> records = checkInRecordDao.getByHabit(habitId);
+        if (records == null) {
+            return;
+        }
+        for (CheckInRecord record : records) {
+            deletePhoto(record.getPhotoUri());
         }
     }
 
