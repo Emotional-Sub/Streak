@@ -51,7 +51,7 @@ public interface HabitDao {
      * 加 ownerUsername 过滤保证只能删自己名下的习惯。
      */
     @Query("DELETE FROM habits WHERE id = :id AND ownerUsername = :owner")
-    void deleteByIdForOwner(long id, String owner);
+    int deleteByIdForOwner(long id, String owner);
 
     @Query("DELETE FROM habits")
     void clear();
