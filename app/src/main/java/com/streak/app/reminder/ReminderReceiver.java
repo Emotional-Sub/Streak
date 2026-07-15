@@ -51,6 +51,11 @@ public class ReminderReceiver extends BroadcastReceiver {
                 HabitItem habit = null;
                 if (habitId > 0) {
                     habit = new AppRepository(appContext).findHabitById(habitId);
+                    // 针对具体习惯的闹钟，但该习惯已不存在（被删除或导入备份整表替换掉）：
+                    // 这是一条本不该再触发的陈旧闹钟，直接静默返回，不用旧文案发一条误导通知。
+                    if (habit == null) {
+                        return;
+                    }
                 }
 
                 String title = habit != null ? habit.getTitle() : fallbackTitle;
