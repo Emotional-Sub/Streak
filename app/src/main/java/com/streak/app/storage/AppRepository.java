@@ -22,6 +22,7 @@ import com.streak.app.util.PasswordHasher;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -369,10 +370,17 @@ public class AppRepository {
         }
         // 改名后必须把该账号名下所有习惯的归属同步到新用户名，
         // 否则 readHabits() 走 getByOwner(新名) 会查不到旧习惯，用户会以为数据全没了。
-        if (!oldUsername.equals(newUsername)) {
-            habitDao.updateOwner(oldUsername, newUsername);
-        }
-        saveAccounts(accounts);
+        // 原子性：习惯改归属与账号表替换必须绑成一个事务——否则若「习惯已改到新名、
+        // 账号表却写入失败」，这些习惯会归给一个尚不存在的用户名，成为查不出的孤儿数据。
+        final String finalNewUsername = newUsername;
+        final boolean renamed = !oldUsername.equals(finalNewUsername);
+        final List<UserAccount> toSave = accounts;
+        database.runInTransaction(() -> {
+            if (renamed) {
+                habitDao.updateOwner(oldUsername, finalNewUsername);
+            }
+            saveAccounts(toSave);
+        });
 
         // 同步登录态：当前用户名、记住的用户名（不再持久化任何密码）
         SharedPreferences.Editor editor = preferences.edit();
@@ -733,6 +741,11 @@ public class AppRepository {
                     bak.delete(); // 清理可能残留的上次副本
                     if (out.renameTo(bak)) {
                         overwrittenBackups.add(new File[]{out, bak});
+                    } else {
+                        // 备份副本创建失败：若继续覆盖，同名旧图将永久丢失且无从还原。
+                        // 立即中止本次导入（抛异常触发下方 catch 的整体回滚），
+                        // 保证磁盘与 DB 一并停留在导入前状态，不留下无法恢复的破坏。
+                        throw new IOException("无法为将被覆盖的图片创建可回滚副本: " + out.getName());
                     }
                 }
                 try (FileOutputStream fos = new FileOutputStream(out)) {
@@ -805,6 +818,15 @@ public class AppRepository {
                 finalAccounts = null;
             }
 
+            // 快照导入前的全部习惯 id：整表替换会删掉未包含在备份里的旧习惯，
+            // 但它们的闹钟（PendingIntent）不会自动消失。事务提交后要逐个取消，
+            // 否则旧闹钟仍会触发，且 ReminderReceiver 查不到习惯时会用旧 Intent 发一条通知。
+            List<HabitItem> preImportHabits = habitDao.getAll();
+            List<Long> preImportIds = new ArrayList<>();
+            for (HabitItem habit : preImportHabits) {
+                preImportIds.add(habit.getId());
+            }
+
             // 原子提交：习惯 + 账号两张表在同一事务里整表替换。
             // 中途任一步抛异常，Room 回滚整笔事务，DB 停留在导入前状态。
             database.runInTransaction(() -> {
@@ -820,7 +842,11 @@ public class AppRepository {
                 pair[1].delete();
             }
 
-            // 重建提醒
+            // 先取消导入前所有习惯的旧闹钟，再按导入后的数据重建，
+            // 避免被删除习惯的 PendingIntent 残留触发。
+            for (long oldId : preImportIds) {
+                reminderScheduler.cancel(oldId);
+            }
             rescheduleAllReminders();
             return true;
         } catch (Exception e) {
