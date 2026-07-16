@@ -30,8 +30,8 @@ import java.util.Map;
  */
 @Database(
         entities = {HabitItem.class, UserAccount.class, CheckInRecord.class},
-        version = 3,
-        exportSchema = false
+        version = 4,
+        exportSchema = true
 )
 @TypeConverters(Converters.class)
 public abstract class StreakDatabase extends RoomDatabase {
@@ -174,6 +174,53 @@ public abstract class StreakDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * v3 -> v4：给 check_in_records 加真正的外键 habitId -> habits.id ON DELETE CASCADE。
+     *
+     * <p>动机：v3 时 Habit 的 upsert 用 {@code @Insert(REPLACE)}（先删后插），若那时加 FK CASCADE，
+     * 每次编辑/打卡习惯的 upsert 都会级联删光其打卡记录，故当时不加 FK、由 Repository 手动清理。
+     * v4 起两表 upsert 都改用 Room {@code @Upsert}（先查后 INSERT/UPDATE，主键行不被删除），
+     * CASCADE 不再被日常 upsert 误触发，遂补上外键，把「删习惯连带删记录」交给数据库自动完成。</p>
+     *
+     * <p>SQLite 无法给已存在的表 ALTER ADD 外键，只能重建：建带 FK 的新表 -> 拷数据 ->
+     * 删旧表 -> 改名 -> 重建两个索引。新表 DDL 必须与 Room 依 {@link CheckInRecord}（带 @ForeignKey）
+     * 生成的 schema 完全一致，否则打开时 TableInfo 校验不匹配会抛异常。</p>
+     *
+     * <p>不手动切 {@code PRAGMA foreign_keys}：Room 在事务中执行 migrate()，而该 PRAGMA
+     * 在事务内是 no-op。重建期间不会触发约束违反，因为拷数据时只搬仍有对应 habits 行的记录
+     * （{@code WHERE habitId IN (SELECT id FROM habits)}），顺带清掉历史孤儿记录。</p>
+     */
+    static final Migration MIGRATION_3_4 = new Migration(3, 4) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // 建带 FK 的新表（DDL 与 Room 生成物逐字对齐：FK 子句 + 列定义顺序/亲和性）
+            database.execSQL("CREATE TABLE IF NOT EXISTS `check_in_records_new` ("
+                    + "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, "
+                    + "`habitId` INTEGER NOT NULL, "
+                    + "`date` TEXT NOT NULL, "
+                    + "`note` TEXT, "
+                    + "`mood` INTEGER NOT NULL, "
+                    + "`durationMinutes` INTEGER NOT NULL, "
+                    + "`photoUri` TEXT, "
+                    + "FOREIGN KEY(`habitId`) REFERENCES `habits`(`id`) "
+                    + "ON UPDATE NO ACTION ON DELETE CASCADE)");
+            // 拷数据：只搬仍有对应 habits 行的记录，顺手清理历史遗留的孤儿记录
+            //（否则新表建了 FK 后，孤儿记录会违反约束）。
+            database.execSQL("INSERT INTO `check_in_records_new` "
+                    + "(id, habitId, date, note, mood, durationMinutes, photoUri) "
+                    + "SELECT id, habitId, date, note, mood, durationMinutes, photoUri "
+                    + "FROM `check_in_records` "
+                    + "WHERE habitId IN (SELECT id FROM habits)");
+            database.execSQL("DROP TABLE `check_in_records`");
+            database.execSQL("ALTER TABLE `check_in_records_new` RENAME TO `check_in_records`");
+            // 重建两个索引（表重建后索引不会自动跟随）
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS "
+                    + "`index_check_in_records_habitId_date` ON `check_in_records` (`habitId`, `date`)");
+            database.execSQL("CREATE INDEX IF NOT EXISTS "
+                    + "`index_check_in_records_habitId` ON `check_in_records` (`habitId`)");
+        }
+    };
+
     private static volatile StreakDatabase instance;
 
     public static StreakDatabase getInstance(Context context) {
@@ -184,7 +231,7 @@ public abstract class StreakDatabase extends RoomDatabase {
                                     context.getApplicationContext(),
                                     StreakDatabase.class,
                                     "streak.db")
-                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                             // 迁移策略：v1->v2 给 habits 加 ownerUsername 列并把存量习惯归属演示账号。
                             // 旧 JSON 数据的搬运由 AppRepository 在首启时完成，不走 Room 迁移。
                             //
