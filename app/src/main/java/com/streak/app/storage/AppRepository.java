@@ -12,6 +12,7 @@ import com.streak.app.db.CheckInRecordDao;
 import com.streak.app.data.CheckInRepository;
 import com.streak.app.data.HabitRepository;
 import com.streak.app.data.AuthRepository;
+import com.streak.app.data.UserRepository;
 import com.streak.app.db.HabitDao;
 import com.streak.app.db.StreakDatabase;
 import com.streak.app.db.UserDao;
@@ -86,6 +87,7 @@ public class AppRepository {
     private final CheckInRepository checkInRepository;
     private final HabitRepository habitRepository;
     private final AuthRepository authRepository;
+    private final UserRepository userRepository;
 
     public AppRepository(Context context) {
         this.context = context.getApplicationContext();
@@ -105,6 +107,7 @@ public class AppRepository {
         this.checkInRepository = new CheckInRepository(this.checkInRecordDao, this.imageStore);
         this.habitRepository = new HabitRepository(this.database, this.habitDao, this.checkInRepository, this::getCurrentUser);
         this.authRepository = new AuthRepository(this.context);
+        this.userRepository = new UserRepository(this.database, this.userDao, this.habitDao, this::getCurrentUser);
         purgeLegacyPlaintextPassword();
         initializeStorageIfNeeded();
     }
@@ -215,68 +218,17 @@ public class AppRepository {
         }
     }
 
-    public boolean validateLogin(String username, String password) {
-        List<UserAccount> accounts = loadAccounts();
-        boolean migrated = false;
-        boolean matched = false;
-        for (UserAccount account : accounts) {
-            if (!username.equals(account.getUsername())) {
-                continue;
-            }
-            if (account.isLegacyPlaintext()) {
-                // 旧明文账号：明文比对成功后立即升级为 PBKDF2 哈希。
-                if (account.getPassword().equals(password)) {
-                    applyHashedPassword(account, password);
-                    migrated = true;
-                    matched = true;
-                }
-            } else if (PasswordHasher.verify(password, account.getSalt(), account.getPasswordHash())) {
-                matched = true;
-            }
-            break;
-        }
-        if (migrated) {
-            saveAccounts(accounts);
-        }
-        return matched;
+        public boolean validateLogin(String username, String password) {
+        return userRepository.validateLogin(username, password);
     }
 
-    public String registerAccount(String username, String password) {
-        if (username.trim().isEmpty() || password.trim().isEmpty()) {
-            return "用户名和密码不能为空";
-        }
-        username = username.trim();
-        List<UserAccount> accounts = loadAccounts();
-        for (UserAccount account : accounts) {
-            if (username.equals(account.getUsername())) {
-                return "该用户名已存在";
-            }
-        }
-        UserAccount account = new UserAccount();
-        account.setUsername(username);
-        applyHashedPassword(account, password);
-        accounts.add(account);
-        saveAccounts(accounts);
-        return null;
-    }
-
-    private void applyHashedPassword(UserAccount account, String password) {
-        String salt = PasswordHasher.generateSalt();
-        account.setSalt(salt);
-        account.setPasswordHash(PasswordHasher.hash(password, salt));
-        account.setPassword(null);
+        public String registerAccount(String username, String password) {
+        return userRepository.registerAccount(username, password);
     }
 
     /**
      * 判断候选密码是否与账号当前密码一致（兼容旧明文账号）。
      */
-    private boolean isSamePassword(UserAccount account, String candidate) {
-        if (account.isLegacyPlaintext()) {
-            return candidate.equals(account.getPassword());
-        }
-        return PasswordHasher.verify(candidate, account.getSalt(), account.getPasswordHash());
-    }
-
     /**
      * 保存登录态。安全整改：只在「记住用户名」勾选时保存用户名，绝不再持久化密码。
      * 保留 password 形参是为了兼容调用方签名，但不写入任何存储。
@@ -326,89 +278,32 @@ public class AppRepository {
     }
 
 
-    public UserAccount getAccount(String username) {
-        for (UserAccount account : loadAccounts()) {
-            if (username.equals(account.getUsername())) {
-                return account;
-            }
-        }
-        return null;
+        public UserAccount getAccount(String username) {
+        return userRepository.getAccount(username);
     }
 
-    public UserAccount getCurrentAccount() {
-        return getAccount(getCurrentUser());
+        public UserAccount getCurrentAccount() {
+        return userRepository.getCurrentAccount();
     }
 
-    public void updateProfile(String username, String displayName, String motto, String avatarUri) {
-        List<UserAccount> accounts = loadAccounts();
-        for (UserAccount account : accounts) {
-            if (username.equals(account.getUsername())) {
-                account.setDisplayName(displayName);
-                account.setMotto(motto);
-                account.setAvatarUri(avatarUri);
-                break;
-            }
-        }
-        saveAccounts(accounts);
+        public void updateProfile(String username, String displayName, String motto, String avatarUri) {
+        userRepository.updateProfile(username, displayName, motto, avatarUri);
     }
 
     /**
      * 编辑账号：可同时修改用户名（查重）、昵称、签名、头像、密码。
      * newPassword 为空表示不改密码。返回 null 表示成功，否则返回错误信息。
      */
-    public String updateAccount(String oldUsername, String newUsername, String displayName,
+        public String updateAccount(String oldUsername, String newUsername, String displayName,
                                 String motto, String avatarUri, String newPassword) {
-        if (newUsername == null || newUsername.trim().isEmpty()) {
-            return "用户名不能为空";
+        String error = userRepository.updateAccount(
+                oldUsername, newUsername, displayName, motto, avatarUri, newPassword);
+        // 账号数据改名成功后，再同步会话态（current_user/saved_username）——
+        // 账号表与会话态分属 UserRepository/AuthRepository，由门面在此编排先后。
+        if (error == null && newUsername != null) {
+            authRepository.syncRenamedUser(oldUsername, newUsername.trim());
         }
-        newUsername = newUsername.trim();
-        List<UserAccount> accounts = loadAccounts();
-        UserAccount target = null;
-        for (UserAccount account : accounts) {
-            if (oldUsername.equals(account.getUsername())) {
-                target = account;
-            } else if (newUsername.equals(account.getUsername())) {
-                return "该用户名已被占用";
-            }
-        }
-        if (target == null) {
-            return "账号不存在";
-        }
-
-        target.setUsername(newUsername);
-        target.setDisplayName(displayName);
-        target.setMotto(motto);
-        target.setAvatarUri(avatarUri);
-        if (newPassword != null && !newPassword.isEmpty()) {
-            if (isSamePassword(target, newPassword)) {
-                return "新密码不能与原密码相同";
-            }
-            applyHashedPassword(target, newPassword);
-        }
-        // 改名后必须把该账号名下所有习惯的归属同步到新用户名，
-        // 否则 readHabits() 走 getByOwner(新名) 会查不到旧习惯，用户会以为数据全没了。
-        // 原子性：习惯改归属与账号表替换必须绑成一个事务——否则若「习惯已改到新名、
-        // 账号表却写入失败」，这些习惯会归给一个尚不存在的用户名，成为查不出的孤儿数据。
-        final String finalNewUsername = newUsername;
-        final boolean renamed = !oldUsername.equals(finalNewUsername);
-        final List<UserAccount> toSave = accounts;
-        database.runInTransaction(() -> {
-            if (renamed) {
-                habitDao.updateOwner(oldUsername, finalNewUsername);
-            }
-            saveAccounts(toSave);
-        });
-
-        // 同步登录态：当前用户名、记住的用户名（不再持久化任何密码）
-        SharedPreferences.Editor editor = preferences.edit();
-        if (oldUsername.equals(getCurrentUser())) {
-            editor.putString(KEY_CURRENT_USER, newUsername);
-        }
-        if (oldUsername.equals(getSavedUsername())) {
-            editor.putString(KEY_SAVED_USERNAME, newUsername);
-        }
-        editor.apply();
-        return null;
+        return error;
     }
 
     /**
@@ -1147,20 +1042,12 @@ public class AppRepository {
         return imageStore.sanitizeFileName(name);
     }
 
-    private List<UserAccount> loadAccounts() {
-        // 纯读取：默认账号的初始化已收敛进 initializeStorageIfNeeded()（仅全新安装触发一次），
-        // 这里不再「表空即补默认账号」，避免老用户删号后又被塞回 student、以及与迁移交错重复写入。
-        List<UserAccount> accounts = userDao.getAll();
-        return accounts == null ? new ArrayList<>() : accounts;
+        private List<UserAccount> loadAccounts() {
+        return userRepository.loadAccounts();
     }
 
-    private List<UserAccount> defaultAccounts() {
-        UserAccount student = new UserAccount();
-        student.setUsername("student");
-        applyHashedPassword(student, "123456");
-        List<UserAccount> defaults = new ArrayList<>();
-        defaults.add(student);
-        return defaults;
+        private List<UserAccount> defaultAccounts() {
+        return userRepository.defaultAccounts();
     }
 
     /**
@@ -1168,22 +1055,12 @@ public class AppRepository {
      * 用于旧数据迁移：迁来的习惯统一归属 student，但旧账号表里未必有 student，
      * 补齐后这些习惯才有可登录的归属，不至于成为看不到的孤儿数据。
      */
-    private void ensureAccountExists(String username) {
-        if (username == null || username.isEmpty()) {
-            return;
-        }
-        if (userDao.findByUsername(username) != null) {
-            return;
-        }
-        UserAccount account = new UserAccount();
-        account.setUsername(username);
-        applyHashedPassword(account, "123456");
-        userDao.upsert(account);
+        private void ensureAccountExists(String username) {
+        userRepository.ensureAccountExists(username);
     }
 
-    private void saveAccounts(List<UserAccount> accounts) {
-        // 整体替换：清空后批量写入，事务保证一致性（等价旧的整文件覆盖语义）。
-        userDao.replaceAll(accounts == null ? new ArrayList<>() : accounts);
+        private void saveAccounts(List<UserAccount> accounts) {
+        userRepository.saveAccounts(accounts);
     }
 
     private List<HabitItem> seedHabits() {
