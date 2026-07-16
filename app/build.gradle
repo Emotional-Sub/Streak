@@ -35,6 +35,14 @@ android {
         vectorDrawables {
             useSupportLibrary true
         }
+
+        // Room exportSchema=true：把每个版本的 schema JSON 导出到 app/schemas，
+        // 纳入版本库以留存历史 schema、支撑迁移测试（MigrationTestHelper 读取旧 schema）。
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += ["room.schemaLocation": "$projectDir/schemas".toString()]
+            }
+        }
     }
 
     signingConfigs {
