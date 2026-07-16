@@ -968,30 +968,38 @@ public class AppRepository {
             // 有 backup.json（v3+ 新结构）就以它为准，读出 schemaVersion / habits / checkInRecords /
             // accounts；否则回退到旧的散装文件（habits.json 必需，check_in_records.json/accounts.json 可选）。
             // rawRecords==null 表示「备份未携带记录」——此时从 habits 的 completedDates/notes 重建。
-            final List<HabitItem> rawHabits;
-            final List<CheckInRecord> rawRecords;
-            final List<UserAccount> rawImportedAccounts;
+            List<HabitItem> parsedHabits = null;
+            List<CheckInRecord> parsedRecords = null;
+            List<UserAccount> parsedAccounts = null;
+
+            // 先尝试版本化信封 backup.json；只有它成功解析出习惯列表才采用。
+            // 信封损坏（非法 JSON / 无 habits）时不直接放弃，而是回退到旧的分文件结构，
+            // 尽量救回还能读的 habits.json，避免一份可用备份因新信封损坏而整体导入失败。
             if (envelopeJson != null) {
                 BackupEnvelope envelope = parseEnvelope(envelopeJson);
-                if (envelope == null || envelope.getHabits() == null) {
-                    return false;
+                if (envelope != null && envelope.getHabits() != null) {
+                    parsedHabits = envelope.getHabits();
+                    parsedRecords = envelope.getCheckInRecords();
+                    parsedAccounts = envelope.getAccounts();
                 }
-                rawHabits = envelope.getHabits();
-                rawRecords = envelope.getCheckInRecords();
-                rawImportedAccounts = envelope.getAccounts();
-            } else {
+            }
+            // 无可用信封时回退旧结构：habits.json 必须能解析出习惯列表，否则放弃、不动现有数据。
+            if (parsedHabits == null) {
                 if (habitsJson == null) {
                     return false;
                 }
-                // 校验：habits.json 必须能解析出习惯列表，否则直接放弃，不动任何现有数据
                 HabitBackup backup = parseHabitBackup(habitsJson);
                 if (backup == null || backup.getHabits() == null) {
                     return false;
                 }
-                rawHabits = backup.getHabits();
-                rawRecords = parseRecordsJson(recordsJson);
-                rawImportedAccounts = parseAccountsJson(accountsJson);
+                parsedHabits = backup.getHabits();
+                parsedRecords = parseRecordsJson(recordsJson);
+                parsedAccounts = parseAccountsJson(accountsJson);
             }
+
+            final List<HabitItem> rawHabits = parsedHabits;
+            final List<CheckInRecord> rawRecords = parsedRecords;
+            final List<UserAccount> rawImportedAccounts = parsedAccounts;
 
             // 校验通过，落地图片。记录「本次新建」的文件（原本不存在者），失败时据此回滚。
             for (Map.Entry<String, byte[]> img : images.entrySet()) {
