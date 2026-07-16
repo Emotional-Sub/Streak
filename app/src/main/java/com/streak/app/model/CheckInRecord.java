@@ -2,6 +2,7 @@ package com.streak.app.model;
 
 import androidx.annotation.NonNull;
 import androidx.room.Entity;
+import androidx.room.ForeignKey;
 import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
@@ -18,13 +19,21 @@ import androidx.room.PrimaryKey;
  * 保留该口径为唯一约束，既不改变任何既有统计语义，又给出干净的关系约束。mood/duration/note/photo
  * 是「当天这条打卡」的附加属性，同一天再次打卡按 upsert 覆盖当天记录。</p>
  *
- * <p><b>为什么不用 {@code @ForeignKey} CASCADE。</b>{@link com.streak.app.db.HabitDao} 的 upsert 用
- * {@code @Insert(REPLACE)}，对应 SQLite 的 INSERT OR REPLACE——按主键先删后插。若加 FK CASCADE，
- * 每次编辑/打卡习惯（都会 upsert 该 habit 行）都会连带级联删光它的打卡记录。故引用完整性改由
- * Repository 层维护（删习惯时显式删其记录），表结构仍是规范的 1:N。</p>
+ * <p><b>外键 CASCADE（v4 起）。</b>{@link com.streak.app.db.HabitDao} 的 upsert 早期用
+ * {@code @Insert(REPLACE)}（INSERT OR REPLACE，按主键先删后插），那会让「编辑/打卡习惯」时的
+ * upsert 触发 FK CASCADE 误删该习惯的全部打卡记录，故当时刻意不加 FK、由 Repository 手动维护
+ * 引用完整性。v4 起 Habit 与本表的 upsert 都改用 Room 的 {@code @Upsert}（先查后
+ * INSERT 或 UPDATE，主键行不被删除），CASCADE 不再会被日常 upsert 误触发，因此这里加上真正的
+ * {@code @ForeignKey} ON DELETE CASCADE：删习惯时数据库自动删其打卡记录，Repository 不必再手动清理。</p>
  */
 @Entity(
         tableName = "check_in_records",
+        foreignKeys = @ForeignKey(
+                entity = HabitItem.class,
+                parentColumns = "id",
+                childColumns = "habitId",
+                onDelete = ForeignKey.CASCADE
+        ),
         indices = {
                 // (habitId, date) 唯一：一天一条，冲突即覆盖（承接既有「按天去重」口径）。
                 @Index(value = {"habitId", "date"}, unique = true),
