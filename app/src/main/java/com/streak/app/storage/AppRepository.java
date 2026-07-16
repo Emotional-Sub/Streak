@@ -19,7 +19,7 @@ import com.streak.app.model.HabitBackup;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.UserAccount;
 import com.streak.app.data.ImageStore;
-import com.streak.app.reminder.ReminderScheduler;
+import com.streak.app.data.ReminderManager;
 import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.PasswordHasher;
 
@@ -74,7 +74,7 @@ public class AppRepository {
     private final File accountsFile;
     private final File imageDir;
     private final File backupDir;
-    private final ReminderScheduler reminderScheduler;
+    private final ReminderManager reminderManager;
     private final ImageStore imageStore;
     private final StreakDatabase database;
     private final HabitDao habitDao;
@@ -90,7 +90,7 @@ public class AppRepository {
         this.backupDir = new File(this.context.getFilesDir(), "exports");
         this.imageDir.mkdirs();
         this.backupDir.mkdirs();
-        this.reminderScheduler = new ReminderScheduler(this.context);
+        this.reminderManager = new ReminderManager(this.context);
         this.imageStore = new ImageStore(this.context, this.imageDir);
         this.database = StreakDatabase.getInstance(this.context);
         this.habitDao = database.habitDao();
@@ -290,9 +290,7 @@ public class AppRepository {
 
     /** 取消当前登录账号名下所有习惯的提醒闹钟（退出/切换账号时用）。 */
     private void cancelRemindersForCurrentUser() {
-        for (HabitItem habit : readHabits()) {
-            reminderScheduler.cancel(habit.getId());
-        }
+        reminderManager.cancelAll(readHabits());
     }
 
     public String getSavedUsername() {
@@ -422,7 +420,7 @@ public class AppRepository {
         // 注意顺序——readHabits 依赖 getCurrentUser()，必须在 logout/清账号前取。
         List<HabitItem> ownHabits = readHabits();
         for (HabitItem habit : ownHabits) {
-            reminderScheduler.cancel(habit.getId());
+            reminderManager.cancel(habit.getId());
             deletePhoto(habit.getImageUri());
             // 删除本账号各习惯打卡记录里附带的照片（与习惯自身 imageUri 独立）
             deleteCheckInPhotos(habit.getId());
@@ -1128,7 +1126,7 @@ public class AppRepository {
             // 先取消导入前所有习惯的旧闹钟，再按导入后的数据重建，
             // 避免被删除习惯的 PendingIntent 残留触发。
             for (long oldId : preImportIds) {
-                reminderScheduler.cancel(oldId);
+                reminderManager.cancel(oldId);
             }
             rescheduleAllReminders();
             return true;
@@ -1257,26 +1255,18 @@ public class AppRepository {
     }
 
     public void syncReminder(HabitItem habit) {
-        reminderScheduler.schedule(habit);
+        reminderManager.schedule(habit);
     }
 
     /**
      * 重新调度所有开启提醒的习惯，用于开机后恢复闹钟。
      */
     public void rescheduleAllReminders() {
-        for (HabitItem habit : readHabits()) {
-            if (habit.isReminderEnabled()) {
-                // 单个习惯调度失败不应中断其余（避免一条脏数据让开机后全部提醒丢失）
-                try {
-                    reminderScheduler.schedule(habit);
-                } catch (Exception ignored) {
-                }
-            }
-        }
+        reminderManager.scheduleAll(readHabits());
     }
 
     public void cancelReminder(long habitId) {
-        reminderScheduler.cancel(habitId);
+        reminderManager.cancel(habitId);
     }
 
     public CameraCaptureInfo createCameraCapture() {
