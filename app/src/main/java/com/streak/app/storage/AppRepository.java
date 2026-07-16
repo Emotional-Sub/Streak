@@ -9,6 +9,7 @@ import androidx.core.content.FileProvider;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.streak.app.db.CheckInRecordDao;
+import com.streak.app.data.CheckInRepository;
 import com.streak.app.db.HabitDao;
 import com.streak.app.db.StreakDatabase;
 import com.streak.app.db.UserDao;
@@ -80,6 +81,7 @@ public class AppRepository {
     private final HabitDao habitDao;
     private final UserDao userDao;
     private final CheckInRecordDao checkInRecordDao;
+    private final CheckInRepository checkInRepository;
 
     public AppRepository(Context context) {
         this.context = context.getApplicationContext();
@@ -96,6 +98,7 @@ public class AppRepository {
         this.habitDao = database.habitDao();
         this.userDao = database.userDao();
         this.checkInRecordDao = database.checkInRecordDao();
+        this.checkInRepository = new CheckInRepository(this.checkInRecordDao, this.imageStore);
         purgeLegacyPlaintextPassword();
         initializeStorageIfNeeded();
     }
@@ -481,17 +484,7 @@ public class AppRepository {
      * 避免拼出 {@code IN ()} 空集查询。
      */
     private Map<Long, List<CheckInRecord>> recordsGroupedByHabit(List<Long> habitIds) {
-        Map<Long, List<CheckInRecord>> byHabit = new HashMap<>();
-        if (habitIds == null || habitIds.isEmpty()) {
-            return byHabit;
-        }
-        List<CheckInRecord> records = checkInRecordDao.getByHabits(habitIds);
-        if (records != null) {
-            for (CheckInRecord record : records) {
-                byHabit.computeIfAbsent(record.getHabitId(), k -> new ArrayList<>()).add(record);
-            }
-        }
-        return byHabit;
+        return checkInRepository.recordsGroupedByHabit(habitIds);
     }
 
     /**
@@ -500,10 +493,7 @@ public class AppRepository {
      * 记录表是唯一真相源，此处只是「读时物化」出旧的两个视图字段。
      */
     private void aggregateCheckInsInto(HabitItem habit) {
-        if (habit == null) {
-            return;
-        }
-        aggregateCheckInsInto(habit, checkInRecordDao.getByHabit(habit.getId()));
+        checkInRepository.aggregateInto(habit);
     }
 
     /**
@@ -511,26 +501,7 @@ public class AppRepository {
      * readHabits 批量取记录后按 habitId 分组，对每个习惯调用此重载（消除 N+1）。
      */
     private void aggregateCheckInsInto(HabitItem habit, List<CheckInRecord> records) {
-        if (habit == null) {
-            return;
-        }
-        List<String> dates = new ArrayList<>();
-        java.util.Map<String, String> notes = new java.util.HashMap<>();
-        if (records != null) {
-            for (CheckInRecord record : records) {
-                String date = record.getDate();
-                if (date == null || date.isEmpty()) {
-                    continue;
-                }
-                dates.add(date);
-                String note = record.getNote();
-                if (note != null && !note.trim().isEmpty()) {
-                    notes.put(date, note);
-                }
-            }
-        }
-        habit.setCompletedDates(dates);
-        habit.setNotes(notes);
+        checkInRepository.aggregateInto(habit, records);
     }
 
     public void writeHabits(List<HabitItem> habits) {
@@ -566,10 +537,7 @@ public class AppRepository {
 
     /** 取某习惯某天的打卡记录（含心情/耗时/照片），无则 null。供新打卡 UI/详情页读富字段。 */
     public CheckInRecord getCheckIn(long habitId, String date) {
-        if (date == null || date.isEmpty()) {
-            return null;
-        }
-        return checkInRecordDao.getByHabitAndDate(habitId, date);
+        return checkInRepository.getCheckIn(habitId, date);
     }
 
     /**
@@ -577,12 +545,7 @@ public class AppRepository {
      * （心情/耗时/照片），不经 completedDates/notes 过渡视图。
      */
     public List<CheckInRecord> getCheckIns(long habitId) {
-        List<CheckInRecord> records = checkInRecordDao.getByHabit(habitId);
-        if (records == null) {
-            return new ArrayList<>();
-        }
-        java.util.Collections.sort(records, (a, b) -> b.getDate().compareTo(a.getDate()));
-        return records;
+        return checkInRepository.getCheckIns(habitId);
     }
 
     /**
@@ -596,25 +559,7 @@ public class AppRepository {
      */
     public void upsertCheckIn(long habitId, String date, int mood,
                              int durationMinutes, String note, String photoUri) {
-        if (date == null || date.isEmpty()) {
-            return;
-        }
-        CheckInRecord existing = checkInRecordDao.getByHabitAndDate(habitId, date);
-        // 照片换了：先记下旧照片路径，成功写入后再删，避免写失败却已删旧图。
-        String oldPhoto = existing == null ? null : existing.getPhotoUri();
-
-        CheckInRecord record = existing == null ? new CheckInRecord() : existing;
-        record.setHabitId(habitId);
-        record.setDate(date);
-        record.setMood(mood);
-        record.setDurationMinutes(durationMinutes);
-        record.setNote(note == null || note.trim().isEmpty() ? null : note.trim());
-        record.setPhotoUri(photoUri == null || photoUri.trim().isEmpty() ? null : photoUri.trim());
-        checkInRecordDao.upsert(record);
-
-        if (oldPhoto != null && !oldPhoto.equals(record.getPhotoUri())) {
-            deletePhoto(oldPhoto);
-        }
+        checkInRepository.upsertCheckIn(habitId, date, mood, durationMinutes, note, photoUri);
     }
 
     /**
@@ -622,14 +567,7 @@ public class AppRepository {
      * 直写真相源，不经派生字段。
      */
     public void removeCheckIn(long habitId, String date) {
-        if (date == null || date.isEmpty()) {
-            return;
-        }
-        CheckInRecord existing = checkInRecordDao.getByHabitAndDate(habitId, date);
-        if (existing != null) {
-            deletePhoto(existing.getPhotoUri());
-        }
-        checkInRecordDao.deleteByHabitAndDate(habitId, date);
+        checkInRepository.removeCheckIn(habitId, date);
     }
 
     /**
@@ -675,47 +613,7 @@ public class AppRepository {
      * 而非 clear + 重插。记录表是真相源，本方法是「旧视图字段 -> 真相源」的回写桥。</p>
      */
     private void syncCheckInsFrom(HabitItem habit) {
-        if (habit == null) {
-            return;
-        }
-        long habitId = habit.getId();
-        List<CheckInRecord> existing = checkInRecordDao.getByHabit(habitId);
-        java.util.Map<String, CheckInRecord> existingByDate = new java.util.HashMap<>();
-        if (existing != null) {
-            for (CheckInRecord record : existing) {
-                existingByDate.put(record.getDate(), record);
-            }
-        }
-
-        java.util.Set<String> targetDates = new java.util.LinkedHashSet<>();
-        List<String> completed = habit.getCompletedDates();
-        if (completed != null) {
-            for (String date : completed) {
-                if (date != null && !date.isEmpty()) {
-                    targetDates.add(date);
-                }
-            }
-        }
-
-        // 删除：已有记录但目标日期集合里没有的 -> 撤销打卡
-        for (String date : existingByDate.keySet()) {
-            if (!targetDates.contains(date)) {
-                checkInRecordDao.deleteByHabitAndDate(habitId, date);
-            }
-        }
-
-        // 新增/更新：对每个目标日期，保留旧记录的 mood/duration/photo，只覆盖 note。
-        for (String date : targetDates) {
-            String note = habit.getNote(date);
-            CheckInRecord record = existingByDate.get(date);
-            if (record == null) {
-                record = new CheckInRecord();
-                record.setHabitId(habitId);
-                record.setDate(date);
-            }
-            record.setNote(note == null || note.isEmpty() ? null : note);
-            checkInRecordDao.upsert(record);
-        }
+        checkInRepository.syncFrom(habit);
     }
 
     /**
@@ -1286,13 +1184,7 @@ public class AppRepository {
      * 删习惯/删号时调用，避免记录行删了但磁盘照片成孤儿文件。
      */
     private void deleteCheckInPhotos(long habitId) {
-        List<CheckInRecord> records = checkInRecordDao.getByHabit(habitId);
-        if (records == null) {
-            return;
-        }
-        for (CheckInRecord record : records) {
-            deletePhoto(record.getPhotoUri());
-        }
+        checkInRepository.deleteCheckInPhotos(habitId);
     }
 
     public String copyGalleryImage(Uri uri) {
