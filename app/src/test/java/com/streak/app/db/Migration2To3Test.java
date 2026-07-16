@@ -159,4 +159,124 @@ public class Migration2To3Test {
         c.close();
         db.close();
     }
+
+    /**
+     * 损坏/非法 JSON 不应中断迁移：某行 completedDates/notes 是坏 JSON 时，
+     * 该行按空列表容错跳过（parseList/parseMap 吞异常返回空），其它正常行照迁不误伤。
+     */
+    @Test
+    public void migration_2_3_toleratesCorruptJson() throws Exception {
+        SupportSQLiteDatabase db = openV2Database();
+        // 2005：completedDates 是坏 JSON（缺右括号）；notes 也是坏的
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                v2Habit(2005L, "损坏行", "[\"2026-01-01\"", "{bad json"));
+        // 2006：正常行，用来确认坏行不拖累其它行
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                v2Habit(2006L, "正常行", "[\"2026-02-01\"]", "{}"));
+
+        StreakDatabase.MIGRATION_2_3.migrate(db);
+
+        // 坏行迁出 0 条（容错跳过），不抛异常
+        Cursor c = db.query("SELECT COUNT(*) FROM check_in_records WHERE habitId = 2005");
+        assertTrue(c.moveToFirst());
+        assertEquals("坏 JSON 行应容错为 0 条", 0, c.getInt(0));
+        c.close();
+        // 正常行不受影响
+        c = db.query("SELECT COUNT(*) FROM check_in_records WHERE habitId = 2006");
+        assertTrue(c.moveToFirst());
+        assertEquals("正常行不应被坏行拖累", 1, c.getInt(0));
+        c.close();
+        db.close();
+    }
+
+    /**
+     * 空/NULL 字段安全：completedDates 为 NULL、空数组、空串，notes 为 NULL，
+     * 均按「无打卡」处理，迁出 0 条且不抛异常。
+     */
+    @Test
+    public void migration_2_3_handlesEmptyAndNullFields() throws Exception {
+        SupportSQLiteDatabase db = openV2Database();
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                v2Habit(2007L, "NULL 打卡", null, null));
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                v2Habit(2008L, "空数组", "[]", "{}"));
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                v2Habit(2009L, "空串", "", ""));
+
+        StreakDatabase.MIGRATION_2_3.migrate(db);
+
+        Cursor c = db.query("SELECT COUNT(*) FROM check_in_records");
+        assertTrue(c.moveToFirst());
+        assertEquals("空/NULL 字段应迁出 0 条", 0, c.getInt(0));
+        c.close();
+        // 习惯行仍在，不丢
+        c = db.query("SELECT COUNT(*) FROM habits");
+        assertTrue(c.moveToFirst());
+        assertEquals(3, c.getInt(0));
+        c.close();
+        db.close();
+    }
+
+    /**
+     * 多账号：不同 ownerUsername 的习惯各自的打卡都应独立迁出，归属列保持不变，
+     * 迁移不跨账号串数据。
+     */
+    @Test
+    public void migration_2_3_preservesMultipleAccounts() throws Exception {
+        SupportSQLiteDatabase db = openV2Database();
+        ContentValues a = v2Habit(2010L, "A 的习惯", "[\"2026-01-01\",\"2026-01-02\"]", "{}");
+        a.put("ownerUsername", "alice");
+        ContentValues b = v2Habit(2011L, "B 的习惯", "[\"2026-01-01\"]", "{}");
+        b.put("ownerUsername", "bob");
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE, a);
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE, b);
+
+        StreakDatabase.MIGRATION_2_3.migrate(db);
+
+        // 各账号习惯的记录数正确，归属列不变
+        Cursor c = db.query("SELECT COUNT(*) FROM check_in_records WHERE habitId = 2010");
+        assertTrue(c.moveToFirst());
+        assertEquals(2, c.getInt(0));
+        c.close();
+        c = db.query("SELECT COUNT(*) FROM check_in_records WHERE habitId = 2011");
+        assertTrue(c.moveToFirst());
+        assertEquals(1, c.getInt(0));
+        c.close();
+        c = db.query("SELECT ownerUsername FROM habits WHERE id = 2010");
+        assertTrue(c.moveToFirst());
+        assertEquals("alice", c.getString(0));
+        c.close();
+        c = db.query("SELECT ownerUsername FROM habits WHERE id = 2011");
+        assertTrue(c.moveToFirst());
+        assertEquals("bob", c.getString(0));
+        c.close();
+        db.close();
+    }
+
+    /**
+     * 升级后统计口径不变：迁移前 completedDates 里的「去重打卡日期数」应等于迁移后
+     * check_in_records 里该习惯的记录数（全 App 统计都按天去重，这条保证升级前后计数一致）。
+     */
+    @Test
+    public void migration_2_3_preservesUniqueCheckInCount() throws Exception {
+        SupportSQLiteDatabase db = openV2Database();
+        // 含一个重复日期：去重后应是 3 个不同日期
+        db.insert("habits", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                v2Habit(2012L, "统计不变",
+                        "[\"2026-01-01\",\"2026-01-02\",\"2026-01-03\",\"2026-01-02\"]",
+                        "{\"2026-01-02\":\"备注\"}"));
+
+        StreakDatabase.MIGRATION_2_3.migrate(db);
+
+        Cursor c = db.query("SELECT COUNT(*) FROM check_in_records WHERE habitId = 2012");
+        assertTrue(c.moveToFirst());
+        assertEquals("迁移后记录数应等于去重日期数", 3, c.getInt(0));
+        c.close();
+        // 备注落到对应日期
+        c = db.query("SELECT note FROM check_in_records WHERE habitId = 2012 AND date = '2026-01-02'");
+        assertTrue(c.moveToFirst());
+        assertEquals("备注", c.getString(0));
+        c.close();
+        db.close();
+    }
 }
