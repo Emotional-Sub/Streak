@@ -593,6 +593,19 @@ public class AppRepository {
     }
 
     /**
+     * 取某习惯全部打卡记录，按日期降序（最近在前）。供详情页时间线直接读富字段
+     * （心情/耗时/照片），不经 completedDates/notes 过渡视图。
+     */
+    public List<CheckInRecord> getCheckIns(long habitId) {
+        List<CheckInRecord> records = checkInRecordDao.getByHabit(habitId);
+        if (records == null) {
+            return new ArrayList<>();
+        }
+        java.util.Collections.sort(records, (a, b) -> b.getDate().compareTo(a.getDate()));
+        return records;
+    }
+
+    /**
      * 直接写入/覆盖某习惯某天的打卡记录（含心情/耗时/照片/备注）——打卡真相源的直写入口。
      *
      * <p><b>为什么不走 completedDates/notes 派生字段。</b>那两个字段是过渡兼容视图，只能表达
