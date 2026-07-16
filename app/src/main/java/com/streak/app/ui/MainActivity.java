@@ -1523,6 +1523,18 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
     }
 
+    /** 心情等级(1..5)映射到表情；0/越界返回空串。与打卡弹层的表情表一致。 */
+    private String moodEmoji(int mood) {
+        switch (mood) {
+            case 1: return "😞";
+            case 2: return "😕";
+            case 3: return "😐";
+            case 4: return "🙂";
+            case 5: return "😄";
+            default: return "";
+        }
+    }
+
     private void openCheckInCamera() {
         if (androidx.core.content.ContextCompat.checkSelfPermission(
                 this, Manifest.permission.CAMERA)
