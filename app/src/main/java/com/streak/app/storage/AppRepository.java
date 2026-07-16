@@ -314,39 +314,50 @@ public class AppRepository {
         String username = getCurrentUser();
         List<UserAccount> accounts = loadAccounts();
         List<UserAccount> remaining = new ArrayList<>();
+        // 先收集要删的图片路径（头像/习惯图/打卡照片），先不删文件——
+        // 等 DB 事务成功提交后再删，避免事务回滚却已把文件删掉，
+        // 留下 DB 有记录、磁盘无图的悬空引用。
+        List<String> imagesToDelete = new ArrayList<>();
         for (UserAccount account : accounts) {
             if (!username.equals(account.getUsername())) {
                 remaining.add(account);
             } else {
-                deletePhoto(account.getAvatarUri());
+                imagesToDelete.add(account.getAvatarUri());
             }
         }
 
-        // 先趁登录态仍在，清理本账号习惯：取消提醒、删照片，再删本账号的习惯行。
-        // 注意顺序——readHabits 依赖 getCurrentUser()，必须在 logout/清账号前取。
+        // 趁登录态仍在，取回本账号习惯（readHabits 依赖 getCurrentUser()）：
+        // 收集习惯图与打卡照片路径，并取消提醒（提醒非 DB 数据，可提前取消）。
         List<HabitItem> ownHabits = readHabits();
         for (HabitItem habit : ownHabits) {
             reminderManager.cancel(habit.getId());
-            deletePhoto(habit.getImageUri());
-            // 删除本账号各习惯打卡记录里附带的照片（与习惯自身 imageUri 独立）
-            deleteCheckInPhotos(habit.getId());
+            imagesToDelete.add(habit.getImageUri());
+            // 打卡记录里附带的照片（与习惯自身 imageUri 独立）
+            for (CheckInRecord record : getCheckIns(habit.getId())) {
+                imagesToDelete.add(record.getPhotoUri());
+            }
         }
+
+        // 账号删除的所有 DB 操作放进一个事务：删打卡记录、删习惯、替换账号表一并成败。
+        // 打卡记录靠 habits 子查询定位归属，必须在删 habits 行之前先删记录。
         if (username != null && !username.isEmpty()) {
-            // 打卡记录靠 habits 子查询定位归属，必须在删 habits 行之前先删记录。
-            // 事务保证「删记录」与「删习惯」一并成败，不留孤儿打卡记录。
             final String owner = username;
             database.runInTransaction(() -> {
                 checkInRecordDao.deleteByOwner(owner);
                 habitDao.clearByOwner(owner);
+                saveAccounts(remaining);
             });
+        } else {
+            saveAccounts(remaining);
         }
 
-        saveAccounts(remaining);
+        // 事务成功提交后再删图片文件：此时 DB 已无引用，删文件失败也不影响数据一致性。
+        for (String uri : imagesToDelete) {
+            deletePhoto(uri);
+        }
 
         logout();
-        preferences.edit()
-                .putString(KEY_SAVED_USERNAME, "")
-                .apply();
+        authRepository.clearSavedUsername();
     }
 
     /**
