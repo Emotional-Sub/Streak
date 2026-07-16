@@ -206,6 +206,16 @@
     <string name="status_pending">未完成</string>
     <string name="checkin_note_hint">记一句今日心情 / 备注（可留空）</string>
     <string name="dialog_checkin_title">完成打卡：%1$s</string>
+    <!-- 打卡录入弹层：心情/耗时/照片 -->
+    <string name="checkin_mood_label">今天的心情（可选）</string>
+    <string name="checkin_mood_emoji_1">😞</string>
+    <string name="checkin_mood_emoji_2">😕</string>
+    <string name="checkin_mood_emoji_3">😐</string>
+    <string name="checkin_mood_emoji_4">🙂</string>
+    <string name="checkin_mood_emoji_5">😄</string>
+    <string name="checkin_duration_hint">耗时（可选）</string>
+    <string name="checkin_duration_suffix">分钟</string>
+    <string name="cd_checkin_photo">打卡照片</string>
 
     <!-- ================= 统计页 ================= -->
     <string name="stats_overview_title">统计总览</string>
