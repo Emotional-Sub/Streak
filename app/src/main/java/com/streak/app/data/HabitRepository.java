@@ -1,0 +1,183 @@
+package com.streak.app.data;
+
+import androidx.annotation.Nullable;
+
+import com.streak.app.db.HabitDao;
+import com.streak.app.db.StreakDatabase;
+import com.streak.app.model.CheckInRecord;
+import com.streak.app.model.HabitItem;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+
+/**
+ * 习惯仓库（Phase B 从 {@code AppRepository} 拆出）：习惯的增删改查与账号隔离。
+ *
+ * <p><b>职责边界。</b>只负责 habits 表的读写，且全部限定在「当前登录账号」范围内。
+ * 打卡记录的聚合回填/回写委托 {@link CheckInRepository}（读习惯时把记录物化进
+ * completedDates/notes、写习惯时把这两个派生字段同步回记录表）。</p>
+ *
+ * <p><b>当前账号来源。</b>为避免与 Auth 层循环依赖，当前用户名由构造时注入的
+ * {@link Supplier} 提供（{@code AppRepository} 传入 {@code this::getCurrentUser}），
+ * 本类不直接读 SharedPreferences。</p>
+ *
+ * <p><b>业务边界收紧（Phase B）。</b>{@link #findHabitById} 与 {@link #saveHabit} 现在
+ * 都限定当前账号：跨账号按 id 读返回 null、保存他账号归属的对象直接拒绝。
+ * 详见各方法注释——这是相对旧 {@code AppRepository} 的行为变更。</p>
+ */
+public class HabitRepository {
+
+    private final StreakDatabase database;
+    private final HabitDao habitDao;
+    private final CheckInRepository checkInRepository;
+    private final Supplier<String> currentUserSupplier;
+
+    public HabitRepository(StreakDatabase database, HabitDao habitDao,
+                           CheckInRepository checkInRepository,
+                           Supplier<String> currentUserSupplier) {
+        this.database = database;
+        this.habitDao = habitDao;
+        this.checkInRepository = checkInRepository;
+        this.currentUserSupplier = currentUserSupplier;
+    }
+
+    private String currentUser() {
+        String owner = currentUserSupplier.get();
+        return owner == null ? "" : owner;
+    }
+
+    /**
+     * 读当前登录账号的全部习惯，并把各自打卡记录聚合回填进内存派生字段（消除 N+1：
+     * 一次批量取回这批习惯的全部记录，在内存按 habitId 分组回填）。
+     */
+    public List<HabitItem> readHabits() {
+        String owner = currentUser();
+        if (owner.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<HabitItem> habits = habitDao.getByOwner(owner);
+        if (habits == null) {
+            return new ArrayList<>();
+        }
+        List<Long> ids = new ArrayList<>(habits.size());
+        for (HabitItem habit : habits) {
+            ids.add(habit.getId());
+        }
+        Map<Long, List<CheckInRecord>> byHabit = checkInRepository.recordsGroupedByHabit(ids);
+        for (HabitItem habit : habits) {
+            checkInRepository.aggregateInto(habit, byHabit.get(habit.getId()));
+        }
+        return habits;
+    }
+
+    /**
+     * 整体替换「当前账号」的习惯：清空该账号旧数据后批量写入，事务保证一致性，
+     * 且绝不触碰其它账号的习惯。写入前给每条盖上归属，避免导入/构造的数据漏了 owner。
+     */
+    public void writeHabits(List<HabitItem> habits) {
+        String owner = currentUser();
+        if (owner.isEmpty()) {
+            return;
+        }
+        List<HabitItem> scoped = habits == null ? new ArrayList<>() : habits;
+        for (HabitItem habit : scoped) {
+            if (habit.getOwnerUsername() == null || habit.getOwnerUsername().isEmpty()) {
+                habit.setOwnerUsername(owner);
+            }
+        }
+        // 习惯行与打卡记录在同一事务里替换：先整表替换该账号的习惯，
+        // 再按每个习惯的内存派生字段同步其打卡记录，避免「习惯已换、记录未换」的半成品状态。
+        database.runInTransaction(() -> {
+            habitDao.replaceAllForOwner(owner, scoped);
+            for (HabitItem habit : scoped) {
+                checkInRepository.syncFrom(habit);
+            }
+        });
+    }
+
+    /**
+     * 按 id 读习惯（含打卡聚合回填），<b>限定当前账号</b>。
+     *
+     * <p><b>业务边界（Phase B 收紧）。</b>旧实现只按 id 读、不校验归属，跨账号可读到他人习惯。
+     * 现加 owner 过滤：非当前账号的 id 返回 null，与 {@link #readHabits} 的隔离口径一致。
+     * 对合法场景透明——提醒只在归属账号登录态下被调度（登出取消、登录重排），
+     * 后台闹钟触发时读到的习惯必属当前账号；真正的陈旧跨账号闹钟读到 null 走既有「习惯已删」静默分支。</p>
+     */
+    @Nullable
+    public HabitItem findHabitById(long habitId) {
+        String owner = currentUser();
+        HabitItem habit = habitDao.findById(habitId);
+        if (habit == null) {
+            return null;
+        }
+        if (owner.isEmpty() || !owner.equals(habit.getOwnerUsername())) {
+            return null; // 非当前账号：按数据隔离不返回
+        }
+        checkInRepository.aggregateInto(habit);
+        return habit;
+    }
+
+    /**
+     * 生成全表唯一的习惯 id（以当前毫秒为基准，占用则递增）。
+     * id 是全表主键，必须对整表防撞——不能只在当前账号内查，否则两个账号在同一毫秒
+     * 新建可能撞 id，upsert 会跨账号覆盖，破坏数据隔离。
+     */
+    public long generateUniqueHabitId() {
+        long id = System.currentTimeMillis();
+        while (habitDao.existsById(id)) {
+            id++;
+        }
+        return id;
+    }
+
+    /**
+     * 保存单个习惯（新增或更新，按 id 主键 upsert）。
+     *
+     * <p><b>业务边界（Phase B 收紧）。</b>未设归属的新习惯盖上当前账号；<b>拒绝保存归属他账号的对象</b>
+     * ——若传入习惯的 ownerUsername 非空且不等于当前账号，直接返回不写，防止越权改写他人数据。</p>
+     */
+    public void saveHabit(HabitItem habit) {
+        if (habit == null) {
+            return;
+        }
+        String owner = currentUser();
+        if (owner.isEmpty()) {
+            return;
+        }
+        String habitOwner = habit.getOwnerUsername();
+        if (habitOwner == null || habitOwner.isEmpty()) {
+            habit.setOwnerUsername(owner);
+        } else if (!owner.equals(habitOwner)) {
+            return; // 归属他账号：拒绝保存（数据隔离防御）
+        }
+        // 习惯行 upsert 与其打卡记录同步绑成一个事务：既有打卡 UI 走「读改写整条习惯」，
+        // 这里据此把记录表同步到与派生字段一致，让旧写入路径零改动即落到规范化表。
+        database.runInTransaction(() -> {
+            habitDao.upsert(habit);
+            checkInRepository.syncFrom(habit);
+        });
+    }
+
+    /**
+     * 按 id 删除单个习惯，并限定归属为当前账号。只动一行，不整表覆盖，避免并发丢更新。
+     * 带 owner 过滤是数据隔离的防御措施：即便传入其它账号的 id 也删不到，不会跨账号误删。
+     *
+     * <p>v4 起 check_in_records 有 FK ON DELETE CASCADE，删习惯行即自动删其打卡记录。
+     * 但先删磁盘上的打卡照片文件：DB 级联只清行、不清文件，行删掉后就再也枚举不到
+     * 这些照片路径了，会留下孤儿图。故先读照片路径删文件，再删习惯（触发级联删记录）。</p>
+     */
+    public void deleteHabitById(long habitId) {
+        String owner = currentUser();
+        if (owner.isEmpty()) {
+            return;
+        }
+        HabitItem target = habitDao.findById(habitId);
+        if (target == null || !owner.equals(target.getOwnerUsername())) {
+            return; // 不存在或非本账号：不删（数据隔离防御）
+        }
+        checkInRepository.deleteCheckInPhotos(habitId);
+        database.runInTransaction(() -> habitDao.deleteByIdForOwner(habitId, owner));
+    }
+}
