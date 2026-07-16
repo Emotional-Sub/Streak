@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.streak.app.R;
 import com.streak.app.databinding.ActivityHabitDetailBinding;
 import com.streak.app.databinding.ItemDetailNoteBinding;
+import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitItem;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.util.HabitAnalytics;
@@ -59,7 +60,8 @@ public class HabitDetailActivity extends AppCompatActivity {
         bindStreakNumbers(habit);
         binding.detailHeatmap.setData(buildHeatmapCounts(habit));
         bindInsights(habit);
-        bindNotes(habit);
+        // 打卡时间线直接读 check_in_records 真相源，展示心情/耗时/照片，而非旧的 notes 派生视图。
+        bindNotes(repository.getCheckIns(habitId));
     }
 
     private void bindHeader(HabitItem habit) {
@@ -117,27 +119,53 @@ public class HabitDetailActivity extends AppCompatActivity {
     }
 
     /**
-     * 打卡备注时间线：按日期倒序（最近在上）逐条展示日期 + 备注文本。
-     * 无任何备注时显示占位提示。
+     * 打卡时间线：按日期倒序（最近在上）逐条展示日期 + 心情/耗时 + 备注 + 照片。
+     * 直接读 {@link CheckInRecord} 真相源；只有「带附加信息（备注/心情/耗时/照片任一）」的
+     * 打卡才展示成一行——纯打卡（无任何附加信息）不占时间线，避免堆一堆空条目。
+     * 无任何可展示条目时显示占位提示。
      */
-    private void bindNotes(HabitItem habit) {
+    private void bindNotes(List<CheckInRecord> records) {
         LinearLayout container = binding.layoutDetailNotes;
         container.removeAllViews();
-        Map<String, String> notes = habit.getNotes();
-        if (notes == null || notes.isEmpty()) {
+        List<CheckInRecord> shown = new ArrayList<>();
+        if (records != null) {
+            for (CheckInRecord record : records) {
+                if (hasDetail(record)) {
+                    shown.add(record);
+                }
+            }
+        }
+        if (shown.isEmpty()) {
             binding.tvDetailNotesEmpty.setVisibility(View.VISIBLE);
             return;
         }
         binding.tvDetailNotesEmpty.setVisibility(View.GONE);
-        List<String> dates = new ArrayList<>(notes.keySet());
         // 日期字符串 yyyy-MM-dd 字典序即时间序，倒序得到最近在前
-        Collections.sort(dates, Collections.reverseOrder());
-        for (String date : dates) {
-            String note = notes.get(date);
-            if (note == null || note.trim().isEmpty()) {
-                continue;
-            }
-            addNoteRow(container, date, note);
+        Collections.sort(shown, (a, b) -> b.getDate().compareTo(a.getDate()));
+        for (CheckInRecord record : shown) {
+            addNoteRow(container, record);
+        }
+    }
+
+    /** 该打卡是否带可展示的附加信息（备注/心情/耗时/照片任一）。 */
+    private boolean hasDetail(CheckInRecord record) {
+        if (record == null) {
+            return false;
+        }
+        boolean hasNote = record.getNote() != null && !record.getNote().trim().isEmpty();
+        boolean hasPhoto = record.getPhotoUri() != null && !record.getPhotoUri().trim().isEmpty();
+        return hasNote || hasPhoto || record.getMood() > 0 || record.getDurationMinutes() > 0;
+    }
+
+    /** 心情等级(1..5)映射到表情；0/越界返回空串。 */
+    private String moodEmoji(int mood) {
+        switch (mood) {
+            case 1: return "😞";
+            case 2: return "😕";
+            case 3: return "😐";
+            case 4: return "🙂";
+            case 5: return "😄";
+            default: return "";
         }
     }
 
@@ -151,10 +179,47 @@ public class HabitDetailActivity extends AppCompatActivity {
         container.addView(tv);
     }
 
-    private void addNoteRow(LinearLayout container, String date, String note) {
+    private void addNoteRow(LinearLayout container, CheckInRecord record) {
         ItemDetailNoteBinding row = ItemDetailNoteBinding.inflate(getLayoutInflater(), container, false);
-        row.tvNoteDate.setText(date);
-        row.tvNoteText.setText(note);
+        row.tvNoteDate.setText(record.getDate());
+
+        // 元信息行：心情表情 + 耗时（分钟）。都没有则整行隐藏。
+        StringBuilder meta = new StringBuilder();
+        String emoji = moodEmoji(record.getMood());
+        if (!emoji.isEmpty()) {
+            meta.append(emoji);
+        }
+        if (record.getDurationMinutes() > 0) {
+            if (meta.length() > 0) {
+                meta.append("  ");
+            }
+            meta.append(getString(R.string.detail_checkin_duration, record.getDurationMinutes()));
+        }
+        if (meta.length() > 0) {
+            row.tvNoteMeta.setText(meta.toString());
+            row.tvNoteMeta.setVisibility(View.VISIBLE);
+        } else {
+            row.tvNoteMeta.setVisibility(View.GONE);
+        }
+
+        // 备注：空则隐藏文本行（可能只有照片/心情）。
+        String note = record.getNote();
+        if (note != null && !note.trim().isEmpty()) {
+            row.tvNoteText.setText(note);
+            row.tvNoteText.setVisibility(View.VISIBLE);
+        } else {
+            row.tvNoteText.setVisibility(View.GONE);
+        }
+
+        // 打卡照片缩略图：有则加载，无则隐藏。
+        String photo = record.getPhotoUri();
+        if (photo != null && !photo.trim().isEmpty()) {
+            com.streak.app.util.ImageLoader.load(row.ivNotePhoto, photo, 480);
+            row.ivNotePhoto.setVisibility(View.VISIBLE);
+        } else {
+            row.ivNotePhoto.setVisibility(View.GONE);
+        }
+
         container.addView(row.getRoot());
     }
 
