@@ -1,9 +1,8 @@
 package com.streak.app.db;
 
 import androidx.room.Dao;
-import androidx.room.Insert;
-import androidx.room.OnConflictStrategy;
 import androidx.room.Query;
+import androidx.room.Upsert;
 
 import com.streak.app.model.HabitItem;
 
@@ -12,6 +11,11 @@ import java.util.List;
 /**
  * 习惯表数据访问对象。所有方法均为同步阻塞调用——保持与旧 JSON 存储相同的调用语义，
  * 由上层 AppRepository / 各 Activity 负责在后台线程执行（沿用既有的线程模型）。
+ *
+ * <p><b>为什么用 {@code @Upsert} 而非 {@code @Insert(REPLACE)}。</b>后者是 INSERT OR REPLACE，
+ * 冲突时按主键「先删后插」——删旧行会触发 {@code check_in_records} 的 FK ON DELETE CASCADE，
+ * 把该习惯的打卡记录连带级联删光。{@code @Upsert} 先查后 INSERT/UPDATE，主键行不被删除，
+ * 故日常「编辑/打卡习惯」的 upsert 不会误删子表记录，CASCADE 只在真正删习惯时生效。</p>
  */
 @Dao
 public interface HabitDao {
@@ -29,7 +33,7 @@ public interface HabitDao {
     /**
      * 全表判断某 id 是否已被占用（跨所有账号）。
      * id 是全表主键，生成新 id 时必须对整表防撞——只在当前账号内查会漏掉其它账号的
-     * 同 id 习惯，导致 upsert 的 REPLACE 跨账号覆盖，破坏数据隔离。
+     * 同 id 习惯，导致 upsert 跨账号覆盖，破坏数据隔离。
      */
     @Query("SELECT EXISTS(SELECT 1 FROM habits WHERE id = :id)")
     boolean existsById(long id);
@@ -37,10 +41,10 @@ public interface HabitDao {
     @Query("SELECT COUNT(*) FROM habits")
     int count();
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     void upsert(HabitItem habit);
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     void upsertAll(List<HabitItem> habits);
 
     @Query("DELETE FROM habits WHERE id = :id")
