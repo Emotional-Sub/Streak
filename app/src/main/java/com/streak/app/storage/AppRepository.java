@@ -18,6 +18,7 @@ import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitBackup;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.UserAccount;
+import com.streak.app.data.ImageStore;
 import com.streak.app.reminder.ReminderScheduler;
 import com.streak.app.util.AvatarPresets;
 import com.streak.app.util.PasswordHasher;
@@ -74,6 +75,7 @@ public class AppRepository {
     private final File imageDir;
     private final File backupDir;
     private final ReminderScheduler reminderScheduler;
+    private final ImageStore imageStore;
     private final StreakDatabase database;
     private final HabitDao habitDao;
     private final UserDao userDao;
@@ -89,6 +91,7 @@ public class AppRepository {
         this.imageDir.mkdirs();
         this.backupDir.mkdirs();
         this.reminderScheduler = new ReminderScheduler(this.context);
+        this.imageStore = new ImageStore(this.context, this.imageDir);
         this.database = StreakDatabase.getInstance(this.context);
         this.habitDao = database.habitDao();
         this.userDao = database.userDao();
@@ -446,28 +449,7 @@ public class AppRepository {
      * 把拍照/相册得到的图片复制进头像目录，返回 file:// uri。
      */
     public String copyAvatarImage(Uri uri) {
-        try {
-            String extension = "jpg";
-            String mimeType = context.getContentResolver().getType(uri);
-            if (mimeType != null && mimeType.contains("/")) {
-                extension = mimeType.substring(mimeType.lastIndexOf('/') + 1);
-            }
-            File target = new File(imageDir, "avatar_" + System.currentTimeMillis() + "." + extension);
-            try (InputStream input = context.getContentResolver().openInputStream(uri);
-                 FileOutputStream output = new FileOutputStream(target)) {
-                if (input == null) {
-                    return null;
-                }
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = input.read(buffer)) != -1) {
-                    output.write(buffer, 0, read);
-                }
-            }
-            return Uri.fromFile(target).toString();
-        } catch (Exception e) {
-            return null;
-        }
+        return imageStore.copyAvatarImage(uri);
     }
 
     public List<HabitItem> readHabits() {
@@ -882,40 +864,11 @@ public class AppRepository {
     }
 
     private void addImageToZip(ZipOutputStream zos, String fileUriOrPath) throws Exception {
-        File source = resolveImageFile(fileUriOrPath);
-        if (source == null || !source.exists()) {
-            // 单张图片缺失/被清理：容错跳过，不影响整体备份成功。
-            return;
-        }
-        // 写入 ZIP 流的异常（磁盘满等）不吞：向上抛出，让 exportBackup 删半成品并返回 null，
-        // 避免用户拿到「缺图但显示成功」的损坏备份。
-        zos.putNextEntry(new ZipEntry("images/" + source.getName()));
-        try (FileInputStream fis = new FileInputStream(source)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = fis.read(buffer)) != -1) {
-                zos.write(buffer, 0, read);
-            }
-        }
-        zos.closeEntry();
+        imageStore.addImageToZip(zos, fileUriOrPath);
     }
 
     private File resolveImageFile(String fileUriOrPath) {
-        if (fileUriOrPath == null || fileUriOrPath.trim().isEmpty()) {
-            return null;
-        }
-        File direct = new File(fileUriOrPath);
-        if (direct.exists()) {
-            return direct;
-        }
-        try {
-            String path = Uri.parse(fileUriOrPath).getPath();
-            if (path != null) {
-                return new File(path);
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return imageStore.resolveImageFile(fileUriOrPath);
     }
 
     /**
@@ -1327,36 +1280,15 @@ public class AppRepository {
     }
 
     public CameraCaptureInfo createCameraCapture() {
-        File file = new File(imageDir, "camera_" + System.currentTimeMillis() + ".jpg");
-        Uri uri = FileProvider.getUriForFile(
-                context,
-                context.getPackageName() + ".fileprovider",
-                file
-        );
-        return new CameraCaptureInfo(uri, file.getAbsolutePath());
+        return imageStore.createCameraCapture();
     }
 
     public String persistCapturedPhoto(String filePath) {
-        File file = new File(filePath);
-        if (!file.exists()) {
-            return null;
-        }
-        return Uri.fromFile(file).toString();
+        return imageStore.persistCapturedPhoto(filePath);
     }
 
     public void deletePhoto(String filePathOrUri) {
-        if (filePathOrUri == null || filePathOrUri.trim().isEmpty()) {
-            return;
-        }
-        try {
-            File directFile = new File(filePathOrUri);
-            File target = directFile.exists() ? directFile : new File(Uri.parse(filePathOrUri).getPath());
-            if (target.exists()) {
-                //noinspection ResultOfMethodCallIgnored
-                target.delete();
-            }
-        } catch (Exception ignored) {
-        }
+        imageStore.deletePhoto(filePathOrUri);
     }
 
     /**
@@ -1374,28 +1306,7 @@ public class AppRepository {
     }
 
     public String copyGalleryImage(Uri uri) {
-        try {
-            String extension = "jpg";
-            String mimeType = context.getContentResolver().getType(uri);
-            if (mimeType != null && mimeType.contains("/")) {
-                extension = mimeType.substring(mimeType.lastIndexOf('/') + 1);
-            }
-            File target = new File(imageDir, "gallery_" + System.currentTimeMillis() + "." + extension);
-            try (InputStream input = context.getContentResolver().openInputStream(uri);
-                 FileOutputStream output = new FileOutputStream(target)) {
-                if (input == null) {
-                    return null;
-                }
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = input.read(buffer)) != -1) {
-                    output.write(buffer, 0, read);
-                }
-            }
-            return Uri.fromFile(target).toString();
-        } catch (Exception e) {
-            return null;
-        }
+        return imageStore.copyGalleryImage(uri);
     }
 
     /**
@@ -1404,55 +1315,7 @@ public class AppRepository {
      * 返回保存后的图片 Uri；失败返回 null。注意：应在后台线程调用，避免阻塞主线程。
      */
     public Uri saveQrToGallery(android.graphics.Bitmap bitmap, String displayName) {
-        if (bitmap == null) {
-            return null;
-        }
-        String fileName = sanitizeFileName(displayName) + "_" + System.currentTimeMillis() + ".png";
-        android.content.ContentResolver resolver = context.getContentResolver();
-        android.content.ContentValues values = new android.content.ContentValues();
-        values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName);
-        values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png");
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
-                    android.os.Environment.DIRECTORY_PICTURES + "/Streak");
-            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 1);
-            Uri uri = resolver.insert(
-                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-            if (uri == null) {
-                return null;
-            }
-            try (java.io.OutputStream out = resolver.openOutputStream(uri)) {
-                if (out == null) {
-                    resolver.delete(uri, null, null);
-                    return null;
-                }
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
-            } catch (Exception e) {
-                resolver.delete(uri, null, null);
-                return null;
-            }
-            values.clear();
-            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0);
-            resolver.update(uri, values, null, null);
-            return uri;
-        } else {
-            // API 26-28：写入公共 Pictures/Streak 目录，再插入 MediaStore 索引让相册可见
-            File picturesDir = new File(
-                    android.os.Environment.getExternalStoragePublicDirectory(
-                            android.os.Environment.DIRECTORY_PICTURES), "Streak");
-            //noinspection ResultOfMethodCallIgnored
-            picturesDir.mkdirs();
-            File target = new File(picturesDir, fileName);
-            try (FileOutputStream out = new FileOutputStream(target)) {
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
-            } catch (Exception e) {
-                return null;
-            }
-            values.put(android.provider.MediaStore.Images.Media.DATA, target.getAbsolutePath());
-            return resolver.insert(
-                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-        }
+        return imageStore.saveQrToGallery(bitmap, displayName);
     }
 
     /**
@@ -1460,32 +1323,11 @@ public class AppRepository {
      * 用于成就战报等临时图片分享，失败返回 null。应在后台线程调用。
      */
     public Uri cacheBitmapForShare(android.graphics.Bitmap bitmap, String baseName) {
-        if (bitmap == null) {
-            return null;
-        }
-        try {
-            File shareDir = new File(context.getCacheDir(), "shares");
-            //noinspection ResultOfMethodCallIgnored
-            shareDir.mkdirs();
-            File target = new File(shareDir,
-                    sanitizeFileName(baseName) + "_" + System.currentTimeMillis() + ".png");
-            try (FileOutputStream out = new FileOutputStream(target)) {
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
-            }
-            return FileProvider.getUriForFile(
-                    context, context.getPackageName() + ".fileprovider", target);
-        } catch (Exception e) {
-            return null;
-        }
+        return imageStore.cacheBitmapForShare(bitmap, baseName);
     }
 
     private String sanitizeFileName(String name) {
-        if (name == null || name.trim().isEmpty()) {
-            return "streak_qr";
-        }
-        // 去掉文件名里的非法字符，避免拼路径出错
-        String cleaned = name.trim().replaceAll("[\\\\/:*?\"<>|]", "_");
-        return cleaned.isEmpty() ? "streak_qr" : cleaned;
+        return imageStore.sanitizeFileName(name);
     }
 
     private List<UserAccount> loadAccounts() {
