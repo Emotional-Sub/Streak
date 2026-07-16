@@ -12,6 +12,7 @@ import com.streak.app.db.CheckInRecordDao;
 import com.streak.app.db.HabitDao;
 import com.streak.app.db.StreakDatabase;
 import com.streak.app.db.UserDao;
+import com.streak.app.model.BackupEnvelope;
 import com.streak.app.model.CameraCaptureInfo;
 import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitBackup;
@@ -733,14 +734,16 @@ public class AppRepository {
         if (owner == null || owner.isEmpty()) {
             return;
         }
-        // 无外键级联（见 CheckInRecord 说明），删习惯时显式清理其打卡记录，避免留孤儿记录。
-        // 事务保证「删习惯」与「删其记录」一并成败，不出现半清理状态。
-        database.runInTransaction(() -> {
-            int deleted = habitDao.deleteByIdForOwner(habitId, owner);
-            if (deleted > 0) {
-                checkInRecordDao.deleteByHabit(habitId);
-            }
-        });
+        // v4 起 check_in_records 有 FK ON DELETE CASCADE，删习惯行即自动删其打卡记录。
+        // 但先删磁盘上的打卡照片文件：DB 级联只清行、不清文件，行删掉后就再也枚举不到
+        // 这些照片路径了，会留下孤儿图。故先读照片路径删文件，再删习惯（触发级联删记录）。
+        // 事务包住删习惯这步；照片删除是文件系统操作，放事务外（失败也不影响 DB 一致性）。
+        HabitItem target = habitDao.findById(habitId);
+        if (target == null || !owner.equals(target.getOwnerUsername())) {
+            return; // 不存在或非本账号：不删（数据隔离防御）
+        }
+        deleteCheckInPhotos(habitId);
+        database.runInTransaction(() -> habitDao.deleteByIdForOwner(habitId, owner));
     }
 
     /**
@@ -785,23 +788,29 @@ public class AppRepository {
             allRecords = new ArrayList<>();
         }
         List<UserAccount> accounts = loadAccounts();
+        List<UserAccount> safeAccounts = sanitizeAccountsForExport(accounts);
+        String exportedAt = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFile))) {
-            // 1) 习惯 JSON（带导出时间；completedDates/notes 已回填，向后兼容旧版本）
-            HabitBackup backup = new HabitBackup(
-                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                    habits
-            );
+            // 0) 顶层版本化信封 backup.json：显式携带 schemaVersion，导入据此分派兼容转换，
+            //    不再靠「某个 JSON 文件是否存在」来推断版本。新版本导入优先读它。
+            BackupEnvelope envelope = new BackupEnvelope(
+                    BackupEnvelope.CURRENT_SCHEMA_VERSION, exportedAt, habits, allRecords, safeAccounts);
+            writeZipEntry(zos, "backup.json", gson.toJson(envelope).getBytes(StandardCharsets.UTF_8));
+
+            // 1) 习惯 JSON（带导出时间；completedDates/notes 已回填）。保留此条目是为了让
+            //    只认 habits.json 的旧版本 App 仍能导入（向后兼容），新版本改读 backup.json。
+            HabitBackup backup = new HabitBackup(exportedAt, habits);
             writeZipEntry(zos, "habits.json", gson.toJson(backup).getBytes(StandardCharsets.UTF_8));
 
             // 2) 账号资料 JSON：含用户名/昵称/签名/头像 + PBKDF2 哈希与盐（绝不含明文密码）。
             //    导出哈希+盐是为了删号后导入能用原密码登回；注意备份文件可被外传，
-            //    其中的哈希+盐可用于离线暴力破解，请提醒用户妥善保管备份。
+            //    其中的哈希+盐可用于离线暴力破解，请提醒用户妥善保管备份。旧版本兼容用。
             writeZipEntry(zos, "accounts.json",
-                    gson.toJson(sanitizeAccountsForExport(accounts)).getBytes(StandardCharsets.UTF_8));
+                    gson.toJson(safeAccounts).getBytes(StandardCharsets.UTF_8));
 
-            // 3) 打卡记录 JSON（全保真：含心情/耗时/照片）。新版本导入优先读它，
-            //    缺失时（旧备份）回退到 habits.json 的 completedDates/notes。
+            // 3) 打卡记录 JSON（全保真：含心情/耗时/照片）。旧版本兼容用；新版本改读 backup.json。
             writeZipEntry(zos, "check_in_records.json",
                     gson.toJson(allRecords).getBytes(StandardCharsets.UTF_8));
 
@@ -916,6 +925,7 @@ public class AppRepository {
             if (rawInput == null) {
                 return false;
             }
+            byte[] envelopeJson = null;
             byte[] habitsJson = null;
             byte[] accountsJson = null;
             byte[] recordsJson = null;
@@ -936,7 +946,9 @@ public class AppRepository {
                     if (++entryCount > MAX_ENTRY_COUNT) {
                         return false;
                     }
-                    if ("habits.json".equals(name)) {
+                    if ("backup.json".equals(name)) {
+                        envelopeJson = readEntryBytes(zis, buffer, budget);
+                    } else if ("habits.json".equals(name)) {
                         habitsJson = readEntryBytes(zis, buffer, budget);
                     } else if ("accounts.json".equals(name)) {
                         accountsJson = readEntryBytes(zis, buffer, budget);
@@ -952,15 +964,33 @@ public class AppRepository {
                 }
             }
 
-            if (habitsJson == null) {
-                return false;
-            }
-
-            // 校验：habits.json 必须能解析出习惯列表，否则直接放弃，不动任何现有数据
-            HabitBackup backup = gson.fromJson(
-                    new String(habitsJson, StandardCharsets.UTF_8), HabitBackup.class);
-            if (backup == null || backup.getHabits() == null) {
-                return false;
+            // 按显式版本号分派，而非「靠某文件是否存在」推断版本：
+            // 有 backup.json（v3+ 新结构）就以它为准，读出 schemaVersion / habits / checkInRecords /
+            // accounts；否则回退到旧的散装文件（habits.json 必需，check_in_records.json/accounts.json 可选）。
+            // rawRecords==null 表示「备份未携带记录」——此时从 habits 的 completedDates/notes 重建。
+            final List<HabitItem> rawHabits;
+            final List<CheckInRecord> rawRecords;
+            final List<UserAccount> rawImportedAccounts;
+            if (envelopeJson != null) {
+                BackupEnvelope envelope = parseEnvelope(envelopeJson);
+                if (envelope == null || envelope.getHabits() == null) {
+                    return false;
+                }
+                rawHabits = envelope.getHabits();
+                rawRecords = envelope.getCheckInRecords();
+                rawImportedAccounts = envelope.getAccounts();
+            } else {
+                if (habitsJson == null) {
+                    return false;
+                }
+                // 校验：habits.json 必须能解析出习惯列表，否则直接放弃，不动任何现有数据
+                HabitBackup backup = parseHabitBackup(habitsJson);
+                if (backup == null || backup.getHabits() == null) {
+                    return false;
+                }
+                rawHabits = backup.getHabits();
+                rawRecords = parseRecordsJson(recordsJson);
+                rawImportedAccounts = parseAccountsJson(accountsJson);
             }
 
             // 校验通过，落地图片。记录「本次新建」的文件（原本不存在者），失败时据此回滚。
@@ -996,7 +1026,7 @@ public class AppRepository {
             // 在内存里备好最终的习惯列表（图片已落地，可安全重映射路径）。
             // 备份是整机全量（含各账号习惯），故整表替换而非按当前账号 scoped 写入
             // （登录页未登录也能触发导入）。缺归属的旧备份数据补上演示账号 student，保持数据隔离。
-            final List<HabitItem> habits = backup.getHabits();
+            final List<HabitItem> habits = rawHabits;
             for (HabitItem habit : habits) {
                 habit.setImageUri(remapImageUri(habit.getImageUri()));
                 if (habit.getOwnerUsername() == null || habit.getOwnerUsername().isEmpty()) {
@@ -1154,6 +1184,59 @@ public class AppRepository {
                 && !fileName.contains("..")
                 && !fileName.contains("/")
                 && !fileName.contains("\\");
+    }
+
+    /**
+     * 解析版本化信封 backup.json。损坏/非法 JSON 返回 null（由 importBackup 回退旧结构或放弃），
+     * 绝不因解析异常崩溃或误改现有数据。
+     */
+    private BackupEnvelope parseEnvelope(byte[] json) {
+        if (json == null) {
+            return null;
+        }
+        try {
+            return gson.fromJson(new String(json, StandardCharsets.UTF_8), BackupEnvelope.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 解析旧结构 habits.json（HabitBackup）。损坏返回 null。 */
+    private HabitBackup parseHabitBackup(byte[] json) {
+        if (json == null) {
+            return null;
+        }
+        try {
+            return gson.fromJson(new String(json, StandardCharsets.UTF_8), HabitBackup.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 解析旧结构 check_in_records.json。损坏或缺失返回 null（回退到 completedDates 重建）。 */
+    private List<CheckInRecord> parseRecordsJson(byte[] json) {
+        if (json == null) {
+            return null;
+        }
+        try {
+            Type recType = new TypeToken<List<CheckInRecord>>() {}.getType();
+            return gson.fromJson(new String(json, StandardCharsets.UTF_8), recType);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 解析旧结构 accounts.json。损坏或缺失返回 null（此时不动现有账号）。 */
+    private List<UserAccount> parseAccountsJson(byte[] json) {
+        if (json == null) {
+            return null;
+        }
+        try {
+            Type type = new TypeToken<List<UserAccount>>() {}.getType();
+            return gson.fromJson(new String(json, StandardCharsets.UTF_8), type);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
