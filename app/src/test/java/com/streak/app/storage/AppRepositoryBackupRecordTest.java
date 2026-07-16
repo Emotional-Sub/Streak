@@ -137,7 +137,87 @@ public class AppRepositoryBackupRecordTest {
         assertEquals(2, restored.getCompletedDates().size());
     }
 
+    /**
+     * 新版导出应写出带显式 schemaVersion 的 backup.json 信封，且导入优先按它恢复
+     * （而非靠「某文件是否存在」推断版本）。
+     */
+    @Test
+    public void export_writesVersionedEnvelope_andImportUsesIt() throws Exception {
+        repository.registerAccount("carol", "pwCCCCCC");
+        loginAs("carol");
+        repository.saveHabit(newHabit(8100L, "拉伸", "carol"));
+        repository.upsertCheckIn(8100L, "2026-03-01", 4, 12, "舒展", null);
+
+        File zip = repository.exportBackup();
+        assertNotNull(zip);
+
+        // ZIP 里应含 backup.json，且其 schemaVersion=4
+        String envelopeJson = readZipEntry(zip, "backup.json");
+        assertNotNull("导出应写出 backup.json 信封", envelopeJson);
+        assertTrue("信封应显式携带 schemaVersion=4",
+                envelopeJson.contains("\"schemaVersion\":4"));
+
+        // 清库后导入：应从信封恢复富字段
+        repository.deleteHabitById(8100L);
+        assertTrue(repository.readHabits().isEmpty());
+        assertTrue(repository.importBackup(Uri.fromFile(zip)));
+
+        CheckInRecord restored = StreakDatabase.getInstance(context)
+                .checkInRecordDao().getByHabitAndDate(8100L, "2026-03-01");
+        assertNotNull(restored);
+        assertEquals("舒展", restored.getNote());
+        assertEquals(4, restored.getMood());
+        assertEquals(12, restored.getDurationMinutes());
+    }
+
+    /**
+     * 损坏的 backup.json（无法解析）不应中止导入：回退到旧的分文件结构（habits.json），
+     * 保证「新信封损坏、但旧文件完好」的备份仍能恢复。
+     */
+    @Test
+    public void import_corruptEnvelope_fallsBackToLegacyFiles() throws Exception {
+        repository.registerAccount("dave", "pwDDDDDD");
+        loginAs("dave");
+
+        String habitsJson = "{\"exportedAt\":\"2026-01-01 10:00:00\",\"habits\":["
+                + "{\"id\":8200,\"title\":\"早睡\",\"ownerUsername\":\"dave\","
+                + "\"completedDates\":[\"2026-01-01\"]}"
+                + "]}";
+        File zip = File.createTempFile("mixed", ".zip", context.getCacheDir());
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zip))) {
+            // 故意写入损坏的 backup.json（非法 JSON），迫使导入回退到 habits.json
+            writeEntry(zos, "backup.json", "{ this is not valid json ".getBytes(StandardCharsets.UTF_8));
+            writeEntry(zos, "habits.json", habitsJson.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertTrue("信封损坏应回退旧结构导入成功", repository.importBackup(Uri.fromFile(zip)));
+
+        loginAs("dave");
+        HabitItem restored = repository.findHabitById(8200L);
+        assertNotNull(restored);
+        assertTrue(restored.getCompletedDates().contains("2026-01-01"));
+    }
+
     // ---- 辅助 ----
+
+    private String readZipEntry(File zip, String entryName) throws Exception {
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
+                new java.io.FileInputStream(zip))) {
+            ZipEntry entry;
+            byte[] buffer = new byte[8192];
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entryName.equals(entry.getName())) {
+                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                    int read;
+                    while ((read = zis.read(buffer)) != -1) {
+                        baos.write(buffer, 0, read);
+                    }
+                    return new String(baos.toByteArray(), StandardCharsets.UTF_8);
+                }
+            }
+        }
+        return null;
+    }
 
     private void writeEntry(ZipOutputStream zos, String name, byte[] data) throws Exception {
         zos.putNextEntry(new ZipEntry(name));
