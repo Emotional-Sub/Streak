@@ -20,10 +20,12 @@ public class HabitItem {
     private String imageUri;
     private String category;
     private List<String> tags;
-    // 打卡日期/备注不再由 Room 持久化：v2->v3 已拆进规范化的 check_in_records 表。
-    // 这两个字段降为「内存派生视图」——AppRepository 读习惯时把该习惯的打卡记录聚合回填进来，
-    // 供既有约 90 处消费端（HabitUtils/HabitAnalytics/各 Activity/Adapter/备份）零改动继续使用。
-    // @Ignore 使 Room 不为其建列；Gson 仍会序列化（备份 habits.json 向后兼容旧版本 App 导入）。
+    // ⚠️ 过渡兼容视图（计划删除）。打卡真相源已是规范化的 check_in_records 表（v2->v3 拆表）。
+    // completedDates/notes 不再由 Room 持久化（@Ignore），仅由 AppRepository 读习惯时把该习惯的
+    // 打卡记录聚合回填进来，供既有约 90 处消费端（HabitUtils/HabitAnalytics/各 Activity/Adapter/备份）
+    // 零改动过渡使用。新代码应直接读写 CheckInRecord（AppRepository.upsertCheckIn/getCheckIn 等），
+    // 不要依赖这两个字段——后续会把统计/日历/详情逐步切到直读 CheckInRecord，最终删除本兼容视图。
+    // Gson 仍会序列化它们（备份 habits.json 向后兼容旧版本 App 导入）。
     @Ignore
     private List<String> completedDates;
     private boolean reminderEnabled;
