@@ -37,6 +37,7 @@ import com.streak.app.databinding.ItemSheetHabitBinding;
 import com.streak.app.databinding.ItemStatRowBinding;
 import com.streak.app.databinding.ItemTemplateOptionBinding;
 import com.streak.app.databinding.SheetCalendarDetailBinding;
+import com.streak.app.databinding.SheetCheckInBinding;
 import com.streak.app.databinding.SheetHabitQrBinding;
 import com.streak.app.databinding.SheetTemplateChooserBinding;
 import com.streak.app.databinding.ViewDashboardCalendarBinding;
@@ -45,6 +46,8 @@ import com.streak.app.databinding.ViewDashboardProfileBinding;
 import com.streak.app.databinding.ViewDashboardStatsBinding;
 import com.streak.app.model.CalendarCell;
 import com.streak.app.model.Badge;
+import com.streak.app.model.CameraCaptureInfo;
+import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitItem;
 import com.streak.app.model.HabitTemplate;
 import com.streak.app.model.UserAccount;
@@ -107,6 +110,20 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     // 等待存储权限授权后再保存的二维码（仅 API 26-28 用得到）
     private Bitmap pendingSaveQrBitmap;
     private String pendingSaveQrTitle;
+
+    // ---- 打卡录入弹层的临时状态 ----
+    // 弹层里拍照/相册的结果回调在弹层构建之后异步触发，需把「当前正在打卡的弹层状态」
+    // 提升为字段，供回调回填照片预览。弹层关闭时清空，避免悬挂引用。
+    private ActivityResultLauncher<String> checkInGalleryLauncher;
+    private ActivityResultLauncher<Uri> checkInCameraLauncher;
+    private ActivityResultLauncher<String> checkInCameraPermissionLauncher;
+    // 当前弹层绑定，null 表示无打卡弹层在展示
+    private com.streak.app.databinding.SheetCheckInBinding activeCheckInBinding;
+    private long checkInHabitId = -1L;
+    private String checkInDate;
+    private int checkInMood;              // 0=未记录，1..5
+    private String checkInPhotoUri;       // 已落地的打卡照片 file:// uri，可空
+    private String pendingCheckInCameraPath; // 待相机回填的临时文件路径
 
     private final java.util.concurrent.ExecutorService backgroundExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -350,6 +367,47 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                     }
                 }
         );
+
+        // 打卡弹层的相册选图：复制进私有目录后更新弹层内的照片预览。
+        checkInGalleryLauncher = registerForActivityResult(
+                new ActivityResultContracts.GetContent(), uri -> {
+                    if (uri == null) {
+                        return;
+                    }
+                    String copied = repository.copyGalleryImage(uri);
+                    if (copied == null) {
+                        Toast.makeText(this, R.string.toast_image_pick_failed, Toast.LENGTH_SHORT).show();
+                    } else {
+                        updateCheckInPhoto(copied);
+                    }
+                });
+
+        // 打卡弹层的拍照：成功后落地照片并更新预览，失败/取消则删掉占位文件。
+        checkInCameraLauncher = registerForActivityResult(
+                new ActivityResultContracts.TakePicture(), success -> {
+                    String filePath = pendingCheckInCameraPath;
+                    pendingCheckInCameraPath = null;
+                    if (!success || filePath == null) {
+                        repository.deletePhoto(filePath);
+                        return;
+                    }
+                    String imageUri = repository.persistCapturedPhoto(filePath);
+                    if (imageUri == null) {
+                        repository.deletePhoto(filePath);
+                    } else {
+                        updateCheckInPhoto(imageUri);
+                    }
+                });
+
+        // 打卡弹层的相机权限：授权后直接拉起相机。
+        checkInCameraPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(), granted -> {
+                    if (granted) {
+                        launchCheckInCamera();
+                    } else {
+                        Toast.makeText(this, R.string.toast_camera_permission_required, Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
     /** 统一处理扫到/解出的原始内容：相机扫码与扫码界面内的相册识别共用。 */
@@ -1343,60 +1401,193 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     public void onToggleComplete(HabitItem item) {
         boolean doneToday = item.getCompletedDates() != null && item.getCompletedDates().contains(today);
         if (doneToday) {
-            // 撤销打卡：直接移除今天并清掉当天备注
-            writeTodayCheckIn(item.getId(), false, null);
+            // 撤销打卡：删今天的打卡记录（含心情/耗时/照片），直写真相源
+            undoTodayCheckIn(item.getId());
         } else {
-            // 打卡：弹可选备注框（可留空/跳过，不打断快速打卡）
+            // 打卡：弹底部录入层（心情/耗时/照片/备注，全部可选）
             promptCheckInNote(item);
         }
     }
 
-    /** 打卡时的可选备注/心情输入框：留空或「跳过」直接完成，不强制。 */
+    /**
+     * 打卡录入底部弹层：心情(1~5) + 耗时(分钟) + 照片 + 备注，全部可选。
+     * 「跳过」= 不带附加信息直接打卡；「保存」= 带上已填的富信息。
+     * 直接写 check_in_records 表（走 repository.upsertCheckIn），不经 completedDates/notes 派生字段，
+     * 才能携带心情/耗时/照片这些派生字段无法表达的信息。
+     */
     private void promptCheckInNote(HabitItem item) {
-        final android.widget.EditText input = new android.widget.EditText(this);
-        input.setHint(getString(R.string.checkin_note_hint));
-        input.setMinLines(2);
-        input.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        FrameLayout wrap = new FrameLayout(this);
-        wrap.setPadding(pad, pad / 2, pad, 0);
-        wrap.addView(input);
+        // 取当刻的新鲜日期，不用缓存的 today：跨午夜仍在前台时缓存可能停在昨天。
+        final String date = HabitUtils.today();
+        SheetCheckInBinding sheetBinding = SheetCheckInBinding.inflate(getLayoutInflater());
 
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(getString(R.string.dialog_checkin_title, item.getTitle()))
-                .setView(wrap)
-                .setNegativeButton(R.string.action_skip, (d, w) -> writeTodayCheckIn(item.getId(), true, null))
-                .setPositiveButton(R.string.action_save, (d, w) ->
-                        writeTodayCheckIn(item.getId(), true, input.getText().toString()))
-                .show();
+        // 绑定当前弹层状态到 Activity 字段，供拍照/相册回调（弹层关闭前生效）落地照片。
+        activeCheckInBinding = sheetBinding;
+        checkInHabitId = item.getId();
+        checkInDate = date;
+        checkInMood = 0;
+        checkInPhotoUri = null;
+
+        sheetBinding.tvCheckInTitle.setText(
+                getString(R.string.dialog_checkin_title, item.getTitle()));
+
+        // 若今天已存在记录（重复打卡/补充信息），预填其心情/耗时/备注/照片
+        runInBackground(() -> {
+            com.streak.app.model.CheckInRecord existing = repository.getCheckIn(item.getId(), date);
+            if (existing != null) {
+                postToUi(() -> {
+                    if (activeCheckInBinding != sheetBinding) {
+                        return; // 弹层已被替换/关闭
+                    }
+                    checkInMood = existing.getMood();
+                    highlightMood(sheetBinding, existing.getMood());
+                    if (existing.getDurationMinutes() > 0) {
+                        sheetBinding.etCheckInDuration.setText(
+                                String.valueOf(existing.getDurationMinutes()));
+                    }
+                    if (existing.getNote() != null) {
+                        sheetBinding.etCheckInNote.setText(existing.getNote());
+                    }
+                    if (existing.getPhotoUri() != null) {
+                        updateCheckInPhoto(existing.getPhotoUri());
+                    }
+                });
+            }
+        });
+
+        // 心情表情点选：点已选中的再取消（回到未记录）
+        TextView[] moods = {
+                sheetBinding.tvMood1, sheetBinding.tvMood2, sheetBinding.tvMood3,
+                sheetBinding.tvMood4, sheetBinding.tvMood5
+        };
+        for (int i = 0; i < moods.length; i++) {
+            final int level = i + 1;
+            moods[i].setOnClickListener(v -> {
+                checkInMood = (checkInMood == level) ? 0 : level;
+                highlightMood(sheetBinding, checkInMood);
+            });
+        }
+
+        sheetBinding.btnCheckInTakePhoto.setOnClickListener(v -> openCheckInCamera());
+        sheetBinding.btnCheckInPickPhoto.setOnClickListener(
+                v -> checkInGalleryLauncher.launch("image/*"));
+        sheetBinding.btnCheckInRemovePhoto.setOnClickListener(v -> removeCheckInPhoto());
+
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        dialog.setContentView(sheetBinding.getRoot());
+        // 弹层消失时清理绑定；若未点保存且拍/选了照片未落库，删临时照片避免残留。
+        dialog.setOnDismissListener(d -> {
+            if (activeCheckInBinding == sheetBinding) {
+                if (!checkInSaved && checkInPhotoUri != null) {
+                    repository.deletePhoto(checkInPhotoUri);
+                }
+                activeCheckInBinding = null;
+                checkInPhotoUri = null;
+                checkInSaved = false;
+            }
+        });
+
+        sheetBinding.btnCheckInSkip.setOnClickListener(v -> {
+            checkInSaved = true; // 跳过也算完成打卡，不清照片（本就没拍）
+            writeCheckIn(item.getId(), date, 0, 0, null, null);
+            dialog.dismiss();
+        });
+        sheetBinding.btnCheckInSave.setOnClickListener(v -> {
+            int duration = parseDuration(sheetBinding.etCheckInDuration.getText());
+            String note = String.valueOf(sheetBinding.etCheckInNote.getText()).trim();
+            checkInSaved = true; // 标记已保存，dismiss 时不清照片
+            writeCheckIn(item.getId(), date, checkInMood, duration,
+                    note.isEmpty() ? null : note, checkInPhotoUri);
+            dialog.dismiss();
+        });
+        dialog.show();
+    }
+
+    /** 高亮选中的心情表情，其余取消选中。level=0 表示全不选。 */
+    private void highlightMood(SheetCheckInBinding binding, int level) {
+        TextView[] moods = {
+                binding.tvMood1, binding.tvMood2, binding.tvMood3,
+                binding.tvMood4, binding.tvMood5
+        };
+        for (int i = 0; i < moods.length; i++) {
+            moods[i].setSelected(i + 1 == level);
+        }
+    }
+
+    /** 从耗时输入解析非负分钟数，非法/空返回 0。 */
+    private int parseDuration(CharSequence text) {
+        try {
+            int value = Integer.parseInt(String.valueOf(text).trim());
+            return Math.max(0, value);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private void openCheckInCamera() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                this, Manifest.permission.CAMERA)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            launchCheckInCamera();
+        } else {
+            checkInCameraPermissionLauncher.launch(Manifest.permission.CAMERA);
+        }
+    }
+
+    private void launchCheckInCamera() {
+        com.streak.app.model.CameraCaptureInfo info = repository.createCameraCapture();
+        pendingCheckInCameraPath = info.getFilePath();
+        checkInCameraLauncher.launch(info.getUri());
+    }
+
+    /** 更新弹层里的打卡照片预览；替换旧的未落库照片时删除它，避免私有目录残留。 */
+    private void updateCheckInPhoto(String imageUri) {
+        if (checkInPhotoUri != null && !checkInPhotoUri.equals(imageUri)) {
+            repository.deletePhoto(checkInPhotoUri);
+        }
+        checkInPhotoUri = imageUri;
+        if (activeCheckInBinding != null) {
+            com.streak.app.util.ImageLoader.load(
+                    activeCheckInBinding.ivCheckInPhoto, imageUri, 720);
+            activeCheckInBinding.ivCheckInPhoto.setVisibility(View.VISIBLE);
+            activeCheckInBinding.btnCheckInRemovePhoto.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void removeCheckInPhoto() {
+        if (checkInPhotoUri != null) {
+            repository.deletePhoto(checkInPhotoUri);
+            checkInPhotoUri = null;
+        }
+        if (activeCheckInBinding != null) {
+            activeCheckInBinding.ivCheckInPhoto.setImageDrawable(null);
+            activeCheckInBinding.ivCheckInPhoto.setVisibility(View.GONE);
+            activeCheckInBinding.btnCheckInRemovePhoto.setVisibility(View.GONE);
+        }
+    }
+
+    // 弹层这一轮是否已提交保存/跳过，用于 dismiss 时决定是否清理未落库照片。
+    private boolean checkInSaved;
+
+    /**
+     * 打卡（新增/补充富信息）：直接写 check_in_records 表，后台线程执行，完成后刷新组件与页面。
+     */
+    private void writeCheckIn(long habitId, String date, int mood,
+                             int durationMinutes, String note, String photoUri) {
+        runInBackground(() -> {
+            repository.upsertCheckIn(habitId, date, mood, durationMinutes, note, photoUri);
+            // 打卡状态变了，主动刷新桌面组件（组件读的是同一份 Room 数据）
+            StreakWidgetProvider.refreshAll(getApplicationContext());
+            postToUi(this::refreshDashboardData);
+        });
     }
 
     /**
-     * 写入/撤销今日打卡，并可附带当天备注。读写文件放后台线程（打卡高频，避免卡主线程）。
+     * 撤销今日打卡：删记录表里今天那条（连同心情/耗时/照片）。后台线程执行。
      */
-    private void writeTodayCheckIn(long habitId, boolean add, String note) {
-        // 取当刻的新鲜日期，不用缓存的 today 字段：应用跨午夜仍在前台时，
-        // 缓存字段可能停留在昨天，会把今天的打卡错记到昨天。
+    private void undoTodayCheckIn(long habitId) {
         final String todayDate = HabitUtils.today();
         runInBackground(() -> {
-            HabitItem target = repository.findHabitById(habitId);
-            if (target != null) {
-                List<String> completedDates = new ArrayList<>(target.getCompletedDates());
-                if (add) {
-                    if (!completedDates.contains(todayDate)) {
-                        completedDates.add(todayDate);
-                    }
-                    target.setNote(todayDate, note);
-                } else {
-                    completedDates.remove(todayDate);
-                    target.setNote(todayDate, null); // 清除当天备注
-                }
-                target.setCompletedDates(completedDates);
-                repository.saveHabit(target);
-            }
-            // 打卡状态变了，主动刷新桌面组件（组件读的是同一份 Room 数据）
+            repository.removeCheckIn(habitId, todayDate);
             StreakWidgetProvider.refreshAll(getApplicationContext());
             postToUi(this::refreshDashboardData);
         });
