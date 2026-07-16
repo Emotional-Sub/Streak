@@ -482,10 +482,35 @@ public class AppRepository {
         }
         // 打卡真相源是 check_in_records 表；habits 行已不含 completedDates/notes 两列。
         // 读出习惯后把各自的打卡记录聚合回填进内存派生字段，供既有约 90 处消费端零改动使用。
+        // 消除 N+1：一次批量取回这批习惯的全部记录，在内存按 habitId 分组回填，
+        // 而非对每个习惯各查一次 getByHabit。
+        List<Long> ids = new ArrayList<>(habits.size());
         for (HabitItem habit : habits) {
-            aggregateCheckInsInto(habit);
+            ids.add(habit.getId());
+        }
+        Map<Long, List<CheckInRecord>> byHabit = recordsGroupedByHabit(ids);
+        for (HabitItem habit : habits) {
+            aggregateCheckInsInto(habit, byHabit.get(habit.getId()));
         }
         return habits;
+    }
+
+    /**
+     * 批量取回给定习惯的打卡记录并按 habitId 分组（消除 N+1）。空列表直接返回空 map，
+     * 避免拼出 {@code IN ()} 空集查询。
+     */
+    private Map<Long, List<CheckInRecord>> recordsGroupedByHabit(List<Long> habitIds) {
+        Map<Long, List<CheckInRecord>> byHabit = new HashMap<>();
+        if (habitIds == null || habitIds.isEmpty()) {
+            return byHabit;
+        }
+        List<CheckInRecord> records = checkInRecordDao.getByHabits(habitIds);
+        if (records != null) {
+            for (CheckInRecord record : records) {
+                byHabit.computeIfAbsent(record.getHabitId(), k -> new ArrayList<>()).add(record);
+            }
+        }
+        return byHabit;
     }
 
     /**
@@ -497,7 +522,17 @@ public class AppRepository {
         if (habit == null) {
             return;
         }
-        List<CheckInRecord> records = checkInRecordDao.getByHabit(habit.getId());
+        aggregateCheckInsInto(habit, checkInRecordDao.getByHabit(habit.getId()));
+    }
+
+    /**
+     * 用「已取好的记录列表」把打卡数据聚合回填进内存派生字段，避免重复查库。
+     * readHabits 批量取记录后按 habitId 分组，对每个习惯调用此重载（消除 N+1）。
+     */
+    private void aggregateCheckInsInto(HabitItem habit, List<CheckInRecord> records) {
+        if (habit == null) {
+            return;
+        }
         List<String> dates = new ArrayList<>();
         java.util.Map<String, String> notes = new java.util.HashMap<>();
         if (records != null) {
@@ -546,6 +581,61 @@ public class AppRepository {
         // 同 readHabits：把打卡记录聚合回填进内存派生字段，保证按 id 读出的习惯也带打卡数据。
         aggregateCheckInsInto(habit);
         return habit;
+    }
+
+    /** 取某习惯某天的打卡记录（含心情/耗时/照片），无则 null。供新打卡 UI/详情页读富字段。 */
+    public CheckInRecord getCheckIn(long habitId, String date) {
+        if (date == null || date.isEmpty()) {
+            return null;
+        }
+        return checkInRecordDao.getByHabitAndDate(habitId, date);
+    }
+
+    /**
+     * 直接写入/覆盖某习惯某天的打卡记录（含心情/耗时/照片/备注）——打卡真相源的直写入口。
+     *
+     * <p><b>为什么不走 completedDates/notes 派生字段。</b>那两个字段是过渡兼容视图，只能表达
+     * 「哪天打过卡」和「当天备注」，无法携带心情/耗时/照片。新打卡 UI 直接调本方法把富信息落到
+     * {@link CheckInRecord} 表（唯一真相源），(habitId,date) 冲突时 {@code @Upsert} 原地更新当天那条。</p>
+     *
+     * <p>换照片时删除被替换掉的旧照片文件，避免磁盘留孤儿图。</p>
+     */
+    public void upsertCheckIn(long habitId, String date, int mood,
+                             int durationMinutes, String note, String photoUri) {
+        if (date == null || date.isEmpty()) {
+            return;
+        }
+        CheckInRecord existing = checkInRecordDao.getByHabitAndDate(habitId, date);
+        // 照片换了：先记下旧照片路径，成功写入后再删，避免写失败却已删旧图。
+        String oldPhoto = existing == null ? null : existing.getPhotoUri();
+
+        CheckInRecord record = existing == null ? new CheckInRecord() : existing;
+        record.setHabitId(habitId);
+        record.setDate(date);
+        record.setMood(mood);
+        record.setDurationMinutes(durationMinutes);
+        record.setNote(note == null || note.trim().isEmpty() ? null : note.trim());
+        record.setPhotoUri(photoUri == null || photoUri.trim().isEmpty() ? null : photoUri.trim());
+        checkInRecordDao.upsert(record);
+
+        if (oldPhoto != null && !oldPhoto.equals(record.getPhotoUri())) {
+            deletePhoto(oldPhoto);
+        }
+    }
+
+    /**
+     * 撤销某习惯某天的打卡：删记录表里的那一条，并删掉其附带的打卡照片文件（避免孤儿图）。
+     * 直写真相源，不经派生字段。
+     */
+    public void removeCheckIn(long habitId, String date) {
+        if (date == null || date.isEmpty()) {
+            return;
+        }
+        CheckInRecord existing = checkInRecordDao.getByHabitAndDate(habitId, date);
+        if (existing != null) {
+            deletePhoto(existing.getPhotoUri());
+        }
+        checkInRecordDao.deleteByHabitAndDate(habitId, date);
     }
 
     /**
