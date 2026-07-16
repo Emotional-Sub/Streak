@@ -251,6 +251,7 @@
     <string name="habit_detail_current_streak">当前连续(天)</string>
     <string name="habit_detail_longest_streak">最长连续(天)</string>
     <string name="habit_detail_total_checkins">累计打卡(次)</string>
+    <string name="detail_checkin_duration">用时 %1$d 分钟</string>
     <string name="habit_detail_heatmap_title">打卡热力图</string>
     <string name="habit_detail_insight_title">本习惯分析</string>
     <string name="habit_detail_insight_active_weekday">%1$s 打卡最多（共 %2$d 次）</string>
