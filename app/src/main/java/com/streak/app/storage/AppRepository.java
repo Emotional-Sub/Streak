@@ -11,6 +11,7 @@ import com.google.gson.reflect.TypeToken;
 import com.streak.app.db.CheckInRecordDao;
 import com.streak.app.data.CheckInRepository;
 import com.streak.app.data.HabitRepository;
+import com.streak.app.data.AuthRepository;
 import com.streak.app.db.HabitDao;
 import com.streak.app.db.StreakDatabase;
 import com.streak.app.db.UserDao;
@@ -84,6 +85,7 @@ public class AppRepository {
     private final CheckInRecordDao checkInRecordDao;
     private final CheckInRepository checkInRepository;
     private final HabitRepository habitRepository;
+    private final AuthRepository authRepository;
 
     public AppRepository(Context context) {
         this.context = context.getApplicationContext();
@@ -102,6 +104,7 @@ public class AppRepository {
         this.checkInRecordDao = database.checkInRecordDao();
         this.checkInRepository = new CheckInRepository(this.checkInRecordDao, this.imageStore);
         this.habitRepository = new HabitRepository(this.database, this.habitDao, this.checkInRepository, this::getCurrentUser);
+        this.authRepository = new AuthRepository(this.context);
         purgeLegacyPlaintextPassword();
         initializeStorageIfNeeded();
     }
@@ -110,11 +113,11 @@ public class AppRepository {
      * 清除历史版本明文存储在 SharedPreferences 里的密码（安全整改）。
      * 现在只记住用户名，不再回填/持久化任何密码。
      */
+    /** 清除历史遗留的明文密码（安全整改）。转发 {@link AuthRepository}。 */
     private void purgeLegacyPlaintextPassword() {
-        if (preferences.contains(KEY_LEGACY_SAVED_PASSWORD)) {
-            preferences.edit().remove(KEY_LEGACY_SAVED_PASSWORD).apply();
-        }
+        authRepository.purgeLegacyPlaintextPassword();
     }
+
 
     /**
      * 存储首启初始化，只执行一次（幂等）。统一在此决策「迁移旧数据 vs 补种子」，
@@ -279,20 +282,17 @@ public class AppRepository {
      * 保留 password 形参是为了兼容调用方签名，但不写入任何存储。
      */
     public void saveLoginState(String username, String password, boolean rememberPassword, String currentUser) {
-        preferences.edit()
-                .putBoolean(KEY_REMEMBER_PASSWORD, rememberPassword)
-                .putString(KEY_CURRENT_USER, currentUser)
-                .putString(KEY_SAVED_USERNAME, rememberPassword ? username : "")
-                .apply();
+        authRepository.saveLoginState(username, password, rememberPassword, currentUser);
     }
 
+
     public void logout() {
-        // 退出前取消本账号所有习惯的提醒：否则退出后旧账号的闹钟仍会按天续排、
-        // 通知照常弹出，甚至在换登其它账号后造成串扰。必须在清空 current_user 之前
-        // 读取，readHabits() 依赖 getCurrentUser() 定位当前账号的习惯。
+        // 退出前取消本账号所有习惯的提醒（否则退出后旧账号闹钟仍续排），再清空当前登录用户名。
+        // 必须在清空前取消——cancelRemindersForCurrentUser 依赖 getCurrentUser 定位当前账号习惯。
         cancelRemindersForCurrentUser();
-        preferences.edit().putString(KEY_CURRENT_USER, "").apply();
+        authRepository.clearCurrentUser();
     }
+
 
     /** 取消当前登录账号名下所有习惯的提醒闹钟（退出/切换账号时用）。 */
     private void cancelRemindersForCurrentUser() {
@@ -300,26 +300,31 @@ public class AppRepository {
     }
 
     public String getSavedUsername() {
-        return preferences.getString(KEY_SAVED_USERNAME, "");
+        return authRepository.getSavedUsername();
     }
+
 
     /** 是否记住用户名（复选框语义已从「记住密码」收敛为「记住用户名」）。 */
     public boolean isRememberPassword() {
-        return preferences.getBoolean(KEY_REMEMBER_PASSWORD, true);
+        return authRepository.isRememberPassword();
     }
 
+
     public String getCurrentUser() {
-        return preferences.getString(KEY_CURRENT_USER, "");
+        return authRepository.getCurrentUser();
     }
+
 
     /** 读取主题模式偏好，默认跟随系统。 */
     public int getThemeMode() {
-        return preferences.getInt(KEY_THEME_MODE, THEME_SYSTEM);
+        return authRepository.getThemeMode();
     }
 
+
     public void setThemeMode(int mode) {
-        preferences.edit().putInt(KEY_THEME_MODE, mode).apply();
+        authRepository.setThemeMode(mode);
     }
+
 
     public UserAccount getAccount(String username) {
         for (UserAccount account : loadAccounts()) {
