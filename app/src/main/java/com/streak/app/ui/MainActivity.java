@@ -125,10 +125,13 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     private String checkInPhotoUri;       // 已落地的打卡照片 file:// uri，可空
     private String pendingCheckInCameraPath; // 待相机回填的临时文件路径
 
-    private final java.util.concurrent.ExecutorService backgroundExecutor =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
-    private final android.os.Handler mainHandler =
-            new android.os.Handler(android.os.Looper.getMainLooper());
+    // 统一走应用级线程池（取代自建 executor/handler）：diskIO 单线程串行，与原 single-thread
+    // executor 语义一致；mainThread 回主线程。共享池与进程同寿，Activity 销毁时不关闭它，
+    // 生命周期安全由 postToUi 的 isFinishing()/isDestroyed() 守卫负责。
+    private final java.util.concurrent.Executor backgroundExecutor =
+            com.streak.app.util.AppExecutors.getInstance().diskIO();
+    private final java.util.concurrent.Executor mainThread =
+            com.streak.app.util.AppExecutors.getInstance().mainThread();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -199,14 +202,6 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     @Override
-    protected void onDestroy() {
-        // 清理已投递但未执行的主线程回调，避免它们在 Activity 销毁后触碰已失效的视图/上下文
-        mainHandler.removeCallbacksAndMessages(null);
-        backgroundExecutor.shutdownNow();
-        super.onDestroy();
-    }
-
-    @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         if (pendingExportFile != null) {
@@ -220,7 +215,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
      * 这里统一加生命周期守卫。
      */
     private void postToUi(Runnable action) {
-        mainHandler.post(() -> {
+        mainThread.execute(() -> {
             if (isFinishing() || isDestroyed()) {
                 return;
             }
@@ -229,18 +224,11 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
     }
 
     /**
-     * 安全地向后台线程池提交任务：executor 已关闭（onDestroy 后）时静默跳过，
-     * 避免 RejectedExecutionException。
+     * 向应用级后台池提交任务。共享池与进程同寿、永不 shutdown，故不再需要 isShutdown 守卫；
+     * 后台任务照常跑完（DB 写幂等无害），其 UI 回调由 postToUi 的生命周期守卫拦截。
      */
     private void runInBackground(Runnable task) {
-        if (backgroundExecutor.isShutdown()) {
-            return;
-        }
-        try {
-            backgroundExecutor.execute(task);
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // Activity 正在销毁，丢弃任务即可
-        }
+        backgroundExecutor.execute(task);
     }
 
     private void setupLaunchers() {
