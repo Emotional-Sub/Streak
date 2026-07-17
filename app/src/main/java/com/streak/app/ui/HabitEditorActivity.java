@@ -333,7 +333,6 @@ public class HabitEditorActivity extends AppCompatActivity {
             // 同 id 会让 upsert 的 REPLACE 跨账号覆盖，破坏数据隔离。
             item.setId(repository.generateUniqueHabitId());
             item.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
-            item.setCompletedDates(new ArrayList<>());
         }
         item.setTitle(title);
         item.setContent(content);
