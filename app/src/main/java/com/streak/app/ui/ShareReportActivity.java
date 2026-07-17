@@ -15,6 +15,7 @@ import com.streak.app.R;
 import com.streak.app.databinding.ActivityShareReportBinding;
 import com.streak.app.model.HabitItem;
 import com.streak.app.storage.AppRepository;
+import com.streak.app.util.AppExecutors;
 import com.streak.app.util.BadgeUtils;
 import com.streak.app.util.HabitUtils;
 import com.streak.app.util.ShareCardGenerator;
@@ -39,10 +40,10 @@ public class ShareReportActivity extends AppCompatActivity {
     private ShareCardGenerator.Scope currentScope = ShareCardGenerator.Scope.TOTAL;
     private Bitmap currentBitmap; // 当前预览用的卡片，保存/分享复用
 
-    private final java.util.concurrent.ExecutorService bg =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
-    private final android.os.Handler ui =
-            new android.os.Handler(android.os.Looper.getMainLooper());
+    // 统一走应用级线程池（取代自建 executor/handler）：diskIO 单线程串行，与原 single-thread
+    // executor 语义一致（读盘 + 位图渲染顺序执行）；ui 回主线程。共享池与进程同寿，不在此关闭。
+    private final java.util.concurrent.Executor bg = AppExecutors.getInstance().diskIO();
+    private final java.util.concurrent.Executor ui = AppExecutors.getInstance().mainThread();
 
     private ActivityResultLauncher<String> storagePermissionLauncher;
 
@@ -90,13 +91,6 @@ public class ShareReportActivity extends AppCompatActivity {
         binding.btnReportShare.setOnClickListener(v -> shareCurrent());
 
         loadDataThenRender();
-    }
-
-    @Override
-    protected void onDestroy() {
-        ui.removeCallbacksAndMessages(null);
-        bg.shutdownNow();
-        super.onDestroy();
     }
 
     /** 后台读一次习惯数据 + 算勋章数，随后渲染首个维度。 */
@@ -184,7 +178,7 @@ public class ShareReportActivity extends AppCompatActivity {
     }
 
     private void post(Runnable r) {
-        ui.post(() -> {
+        ui.execute(() -> {
             if (isFinishing() || isDestroyed()) {
                 return;
             }
