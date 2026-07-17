@@ -121,6 +121,23 @@ public class HabitRepository {
     }
 
     /**
+     * 校验某习惯是否归属当前登录账号——打卡接口（getCheckIn/getCheckIns/upsertCheckIn/
+     * removeCheckIn）的账号隔离守卫。
+     *
+     * <p><b>为什么需要。</b>打卡的读写撤销此前只按 habitId 定位记录，不校验该习惯属于谁，
+     * 与「严格数据隔离」不符：拿到他账号的 habitId 即可读/改/撤其打卡。本方法让打卡入口
+     * 也限定当前账号。比 {@link #findHabitById} 轻——只查归属、不做打卡聚合回填。</p>
+     */
+    public boolean isOwnedByCurrentUser(long habitId) {
+        String owner = currentUser();
+        if (owner.isEmpty()) {
+            return false;
+        }
+        HabitItem habit = habitDao.findById(habitId);
+        return habit != null && owner.equals(habit.getOwnerUsername());
+    }
+
+    /**
      * 生成全表唯一的习惯 id（以当前毫秒为基准，占用则递增）。
      * id 是全表主键，必须对整表防撞——不能只在当前账号内查，否则两个账号在同一毫秒
      * 新建可能撞 id，upsert 会跨账号覆盖，破坏数据隔离。
