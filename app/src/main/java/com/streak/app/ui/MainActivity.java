@@ -2,267 +2,80 @@ package com.streak.app.ui;
 
 import android.Manifest;
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.Editable;
 import android.text.TextUtils;
-import android.text.TextWatcher;
-import android.view.MenuItem;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.FrameLayout;
-import android.widget.GridLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.recyclerview.widget.LinearLayoutManager;
 
-import com.google.android.material.chip.Chip;
-import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.streak.app.R;
 import com.streak.app.databinding.ActivityMainBinding;
-import com.streak.app.databinding.ItemBadgeBinding;
-import com.streak.app.databinding.ItemSheetHabitBinding;
-import com.streak.app.databinding.ItemStatRowBinding;
-import com.streak.app.databinding.ItemTemplateOptionBinding;
-import com.streak.app.databinding.SheetCalendarDetailBinding;
-import com.streak.app.databinding.SheetCheckInBinding;
-import com.streak.app.databinding.SheetHabitQrBinding;
-import com.streak.app.databinding.SheetTemplateChooserBinding;
-import com.streak.app.databinding.ViewDashboardCalendarBinding;
-import com.streak.app.databinding.ViewDashboardHabitsBinding;
-import com.streak.app.databinding.ViewDashboardProfileBinding;
-import com.streak.app.databinding.ViewDashboardStatsBinding;
-import com.streak.app.model.CalendarCell;
-import com.streak.app.model.Badge;
-import com.streak.app.model.CameraCaptureInfo;
-import com.streak.app.model.CheckInRecord;
-import com.streak.app.model.HabitItem;
-import com.streak.app.model.HabitTemplate;
-import com.streak.app.model.UserAccount;
-import com.streak.app.StreakApp;
 import com.streak.app.storage.AppRepository;
+import com.streak.app.ui.dashboard.DashboardActivity;
+import com.streak.app.util.AppExecutors;
 import com.streak.app.widget.StreakWidgetProvider;
-import com.streak.app.util.AvatarPresets;
-import com.streak.app.util.BadgeUtils;
-import com.streak.app.util.HabitAnalytics;
-import com.streak.app.util.ShareCardGenerator;
-import com.streak.app.util.HabitQrCodec;
-import com.streak.app.util.HabitUtils;
-import com.streak.app.util.QrGenerator;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.OutputStream;
-import java.time.LocalDate;
-import java.time.YearMonth;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.concurrent.Executor;
 
-public class MainActivity extends AppCompatActivity implements HabitAdapter.Callback {
+/**
+ * 登录页（Phase C 收官后只负责登录）。
+ *
+ * <p><b>职责收敛。</b>历史上本类是「单 Activity 多页」的巨型宿主（1700+ 行），既管登录又内联
+ * 承载习惯/日历/统计/我的四页。Phase C 把四页拆成独立 Fragment、由 {@link DashboardActivity}
+ * 宿主承载后，本类瘦身为纯登录页：校验登录、注册跳转、登录前的备份恢复、通知权限。
+ * 登录成功（或已登录）后跳 {@link DashboardActivity} 并 finish 自身。</p>
+ *
+ * <p><b>为什么导入放在登录页。</b>备份恢复是「离线优先、无后端」App 的重装/换机迁移入口，
+ * 需在未登录态可用（备份是整机全量，不依赖当前账号）。故登录页保留「导入备份」按钮。</p>
+ */
+public class MainActivity extends AppCompatActivity {
+
     private ActivityMainBinding binding;
-    private ViewDashboardHabitsBinding habitsBinding;
-    private ViewDashboardCalendarBinding calendarBinding;
-    private ViewDashboardStatsBinding statsBinding;
-    private ViewDashboardProfileBinding profileBinding;
-    private TextView tvStatsHabitCount;
-    private TextView tvStatsTotalCheckIns;
-    private TextView tvStatsBestStreak;
-    private TextView tvStatsCompletionRate;
-    private TextView tvProfileHabitCount;
-    private TextView tvProfileCheckInCount;
-    private TextView tvProfileTodayCount;
-    private TextView tvProfileBestStreak;
     private AppRepository repository;
-    private HabitAdapter habitAdapter;
-    private final List<HabitItem> allHabits = new ArrayList<>();
-    private String selectedCategory = "全部";
-    private String currentUser = "";
-    private String today = HabitUtils.today();
-    // 日历当前显示的月份锚点（该月任意一天）；null 表示显示当月
-    private String displayedMonth;
-    private File pendingExportFile;
-
 
     private ActivityResultLauncher<String> notificationPermissionLauncher;
-    private ActivityResultLauncher<String> exportLauncher;
     private ActivityResultLauncher<String[]> importLauncher;
-    private ActivityResultLauncher<Intent> editorLauncher;
     private ActivityResultLauncher<Intent> registerLauncher;
-    private ActivityResultLauncher<Intent> profileEditLauncher;
-    private ActivityResultLauncher<com.journeyapps.barcodescanner.ScanOptions> habitScanLauncher;
-    private ActivityResultLauncher<String> storagePermissionLauncher;
-    // 等待存储权限授权后再保存的二维码（仅 API 26-28 用得到）
-    private Bitmap pendingSaveQrBitmap;
-    private String pendingSaveQrTitle;
 
-    // ---- 打卡录入弹层的临时状态 ----
-    // 弹层里拍照/相册的结果回调在弹层构建之后异步触发，需把「当前正在打卡的弹层状态」
-    // 提升为字段，供回调回填照片预览。弹层关闭时清空，避免悬挂引用。
-    private ActivityResultLauncher<String> checkInGalleryLauncher;
-    private ActivityResultLauncher<Uri> checkInCameraLauncher;
-    private ActivityResultLauncher<String> checkInCameraPermissionLauncher;
-    // 当前弹层绑定，null 表示无打卡弹层在展示
-    private com.streak.app.databinding.SheetCheckInBinding activeCheckInBinding;
-    private long checkInHabitId = -1L;
-    private String checkInDate;
-    private int checkInMood;              // 0=未记录，1..5
-    private String checkInPhotoUri;       // 已落地的打卡照片 file:// uri，可空
-    private String pendingCheckInCameraPath; // 待相机回填的临时文件路径
-
-    // 统一走应用级线程池（取代自建 executor/handler）：diskIO 单线程串行，与原 single-thread
-    // executor 语义一致；mainThread 回主线程。共享池与进程同寿，Activity 销毁时不关闭它，
-    // 生命周期安全由 postToUi 的 isFinishing()/isDestroyed() 守卫负责。
-    private final java.util.concurrent.Executor backgroundExecutor =
-            com.streak.app.util.AppExecutors.getInstance().diskIO();
-    private final java.util.concurrent.Executor mainThread =
-            com.streak.app.util.AppExecutors.getInstance().mainThread();
+    private final Executor backgroundExecutor = AppExecutors.getInstance().diskIO();
+    private final Executor mainThread = AppExecutors.getInstance().mainThread();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
-        if (savedInstanceState != null) {
-            String path = savedInstanceState.getString("pending_export_file");
-            if (path != null) {
-                pendingExportFile = new File(path);
-            }
-        }
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-        habitsBinding = ViewDashboardHabitsBinding.bind(findViewById(R.id.pageHabits));
-        calendarBinding = ViewDashboardCalendarBinding.bind(findViewById(R.id.pageCalendar));
-        statsBinding = ViewDashboardStatsBinding.bind(findViewById(R.id.pageStats));
-        profileBinding = ViewDashboardProfileBinding.bind(findViewById(R.id.pageProfile));
-        tvStatsHabitCount = findViewById(R.id.tvStatsHabitCount);
-        tvStatsTotalCheckIns = findViewById(R.id.tvStatsTotalCheckIns);
-        tvStatsBestStreak = findViewById(R.id.tvStatsBestStreak);
-        tvStatsCompletionRate = findViewById(R.id.tvStatsCompletionRate);
-        tvProfileHabitCount = findViewById(R.id.tvProfileHabitCount);
-        tvProfileCheckInCount = findViewById(R.id.tvProfileCheckInCount);
-        tvProfileTodayCount = findViewById(R.id.tvProfileTodayCount);
-        tvProfileBestStreak = findViewById(R.id.tvProfileBestStreak);
 
-        // 缓存初始 padding，insets 回调里用「基准值 + 系统栏」绝对赋值，
-        // 避免每次 insets 重新分发（切 Tab / 弹键盘 / 获焦）时累加导致顶部空白越撑越大。
-        final int toolbarBaseTop = binding.toolbarDashboard.getPaddingTop();
-        final int bottomNavBaseBottom = binding.bottomNavigation.getPaddingBottom();
+        // 登录卡片顶部留出状态栏高度，避免被系统栏遮挡。
+        final int rootBaseTop = binding.getRoot().getPaddingTop();
         ViewCompat.setOnApplyWindowInsetsListener(binding.getRoot(), (v, insets) -> {
             int top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
             int bottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
-            binding.toolbarDashboard.setPadding(
-                    binding.toolbarDashboard.getPaddingLeft(),
-                    toolbarBaseTop + top,
-                    binding.toolbarDashboard.getPaddingRight(),
-                    binding.toolbarDashboard.getPaddingBottom()
-            );
-            binding.bottomNavigation.setPadding(
-                    binding.bottomNavigation.getPaddingLeft(),
-                    binding.bottomNavigation.getPaddingTop(),
-                    binding.bottomNavigation.getPaddingRight(),
-                    bottomNavBaseBottom + bottom
-            );
+            v.setPadding(v.getPaddingLeft(), rootBaseTop + top, v.getPaddingRight(), bottom);
             return insets;
         });
 
         repository = new AppRepository(this);
-        habitAdapter = new HabitAdapter(this);
 
         setupLaunchers();
         setupLoginViews();
-        setupDashboardViews();
         requestNotificationPermissionIfNeeded();
         loadLoginState();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        // 应用跨午夜后回到前台：缓存的 today 已停留在昨天，会导致今日高亮/汇总错位。
-        // 仅当已登录（仪表盘可见）且日期确实翻天时刷新，避免无谓重绘。
-        if (binding.dashboardRoot.getVisibility() == View.VISIBLE
-                && !HabitUtils.today().equals(today)) {
-            refreshDashboardData();
-        }
-    }
-
-    @Override
-    protected void onSaveInstanceState(@NonNull Bundle outState) {
-        super.onSaveInstanceState(outState);
-        if (pendingExportFile != null) {
-            outState.putString("pending_export_file", pendingExportFile.getAbsolutePath());
-        }
-    }
-
-    /**
-     * 把结果回主线程执行，但仅当 Activity 尚存活时才跑。
-     * 后台任务完成时 Activity 可能已 finishing/destroyed，直接碰 binding/Toast/launcher 会崩，
-     * 这里统一加生命周期守卫。
-     */
-    private void postToUi(Runnable action) {
-        mainThread.execute(() -> {
-            if (isFinishing() || isDestroyed()) {
-                return;
-            }
-            action.run();
-        });
-    }
-
-    /**
-     * 向应用级后台池提交任务。共享池与进程同寿、永不 shutdown，故不再需要 isShutdown 守卫；
-     * 后台任务照常跑完（DB 写幂等无害），其 UI 回调由 postToUi 的生命周期守卫拦截。
-     */
-    private void runInBackground(Runnable task) {
-        backgroundExecutor.execute(task);
     }
 
     private void setupLaunchers() {
         notificationPermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
-                granted -> { }
-        );
-
-        exportLauncher = registerForActivityResult(
-                new ActivityResultContracts.CreateDocument("application/zip"),
-                uri -> {
-                    File exportFile = pendingExportFile;
-                    pendingExportFile = null;
-                    if (exportFile == null) {
-                        return;
-                    }
-                    if (uri == null) {
-                        //noinspection ResultOfMethodCallIgnored
-                        exportFile.delete();
-                        Toast.makeText(this, R.string.toast_export_cancelled, Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    runInBackground(() -> {
-                        boolean success = copyFileToUri(exportFile, uri);
-                        //noinspection ResultOfMethodCallIgnored
-                        exportFile.delete();
-                        postToUi(() -> Toast.makeText(
-                                this,
-                                success ? getString(R.string.toast_export_success) : getString(R.string.toast_save_failed_retry),
-                                Toast.LENGTH_SHORT
-                        ).show());
-                    });
-                }
-        );
+                granted -> { });
 
         importLauncher = registerForActivityResult(
                 new ActivityResultContracts.OpenDocument(),
@@ -271,36 +84,18 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                         return;
                     }
                     Toast.makeText(this, R.string.toast_importing, Toast.LENGTH_SHORT).show();
-                    runInBackground(() -> {
+                    backgroundExecutor.execute(() -> {
                         boolean success = repository.importBackup(uri);
-                        // 导入会整表替换习惯，桌面小组件读的是同一份数据，成功后刷新一次
                         if (success) {
                             StreakWidgetProvider.refreshAll(getApplicationContext());
                         }
-                        postToUi(() -> {
-                            Toast.makeText(
-                                    this,
-                                    success ? getString(R.string.toast_import_success) : getString(R.string.toast_import_failed),
-                                    Toast.LENGTH_SHORT
-                            ).show();
-                            if (success && !TextUtils.isEmpty(repository.getCurrentUser())) {
-                                refreshDashboardData();
-                            }
-                        });
+                        postToUi(() -> Toast.makeText(
+                                this,
+                                success ? getString(R.string.toast_import_success)
+                                        : getString(R.string.toast_import_failed),
+                                Toast.LENGTH_SHORT).show());
                     });
-                }
-        );
-
-        editorLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == RESULT_OK) {
-                        refreshDashboardData();
-                        // 新增/编辑习惯会改变今日进度与习惯总数，同步刷新桌面小组件
-                        StreakWidgetProvider.refreshAll(getApplicationContext());
-                    }
-                }
-        );
+                });
 
         registerLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
@@ -312,128 +107,7 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                             binding.etLoginPassword.requestFocus();
                         }
                     }
-                }
-        );
-
-        profileEditLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == RESULT_OK) {
-                        refreshDashboardData();
-                    }
-                }
-        );
-
-        habitScanLauncher = registerForActivityResult(
-                new com.journeyapps.barcodescanner.ScanContract(),
-                result -> {
-                    if (result.getContents() == null) {
-                        return; // 用户取消
-                    }
-                    handleScannedContent(result.getContents());
-                }
-        );
-
-        // 仅 API 26-28 保存二维码到相册前需要的存储权限
-        storagePermissionLauncher = registerForActivityResult(
-                new ActivityResultContracts.RequestPermission(),
-                granted -> {
-                    Bitmap qr = pendingSaveQrBitmap;
-                    String title = pendingSaveQrTitle;
-                    pendingSaveQrBitmap = null;
-                    pendingSaveQrTitle = null;
-                    if (!granted) {
-                        Toast.makeText(this, R.string.toast_need_storage_permission_save, Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    if (qr != null) {
-                        saveQrToGallery(qr, title);
-                    } else {
-                        // 授权对话框显示期间进程曾被系统回收，待存二维码已丢失。
-                        // 明确提示重试，而非静默失败。
-                        Toast.makeText(this, R.string.toast_authorized_retry_save, Toast.LENGTH_SHORT).show();
-                    }
-                }
-        );
-
-        // 打卡弹层的相册选图：复制进私有目录后更新弹层内的照片预览。
-        checkInGalleryLauncher = registerForActivityResult(
-                new ActivityResultContracts.GetContent(), uri -> {
-                    if (uri == null) {
-                        return;
-                    }
-                    String copied = repository.copyGalleryImage(uri);
-                    if (copied == null) {
-                        Toast.makeText(this, R.string.toast_image_pick_failed, Toast.LENGTH_SHORT).show();
-                    } else {
-                        updateCheckInPhoto(copied);
-                    }
                 });
-
-        // 打卡弹层的拍照：成功后落地照片并更新预览，失败/取消则删掉占位文件。
-        checkInCameraLauncher = registerForActivityResult(
-                new ActivityResultContracts.TakePicture(), success -> {
-                    String filePath = pendingCheckInCameraPath;
-                    pendingCheckInCameraPath = null;
-                    if (!success || filePath == null) {
-                        repository.deletePhoto(filePath);
-                        return;
-                    }
-                    String imageUri = repository.persistCapturedPhoto(filePath);
-                    if (imageUri == null) {
-                        repository.deletePhoto(filePath);
-                    } else {
-                        updateCheckInPhoto(imageUri);
-                    }
-                });
-
-        // 打卡弹层的相机权限：授权后直接拉起相机。
-        checkInCameraPermissionLauncher = registerForActivityResult(
-                new ActivityResultContracts.RequestPermission(), granted -> {
-                    if (granted) {
-                        launchCheckInCamera();
-                    } else {
-                        Toast.makeText(this, R.string.toast_camera_permission_required, Toast.LENGTH_SHORT).show();
-                    }
-                });
-    }
-
-    /** 统一处理扫到/解出的原始内容：相机扫码与扫码界面内的相册识别共用。 */
-    private void handleScannedContent(String raw) {
-        if (raw == null) {
-            Toast.makeText(this, R.string.toast_qr_not_recognized, Toast.LENGTH_SHORT).show();
-            return;
-        }
-        HabitQrCodec.Decoded decoded = HabitQrCodec.decode(raw);
-        if (decoded == null) {
-            Toast.makeText(this, R.string.toast_invalid_habit_qr, Toast.LENGTH_SHORT).show();
-            return;
-        }
-        openEditorWithScan(decoded);
-    }
-
-    private void launchCameraScan() {
-        com.journeyapps.barcodescanner.ScanOptions options =
-                new com.journeyapps.barcodescanner.ScanOptions();
-        options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE);
-        options.setPrompt(getString(R.string.scan_prompt_habit));
-        options.setBeepEnabled(false);
-        // 方向交给 PortraitCaptureActivity 在 manifest 中的 portrait 声明控制，
-        // 这里必须设为 false，否则 CaptureManager 会按设备当前旋转自行锁定方向，
-        // 与 manifest 冲突，导致预览变横屏并出现拉伸的横线。
-        options.setOrientationLocked(false);
-        options.setCaptureActivity(PortraitCaptureActivity.class);
-        habitScanLauncher.launch(options);
-    }
-
-    private void openEditorWithScan(HabitQrCodec.Decoded decoded) {
-        Intent intent = new Intent(this, HabitEditorActivity.class)
-                .putExtra(HabitEditorActivity.EXTRA_TPL_TITLE, decoded.title)
-                .putExtra(HabitEditorActivity.EXTRA_TPL_CONTENT, decoded.content)
-                .putExtra(HabitEditorActivity.EXTRA_TPL_CATEGORY, decoded.category)
-                .putExtra(HabitEditorActivity.EXTRA_TPL_REMINDER, decoded.reminderTime)
-                .putExtra(HabitEditorActivity.EXTRA_TPL_TAGS, decoded.tags);
-        editorLauncher.launch(intent);
     }
 
     private void setupLoginViews() {
@@ -443,52 +117,14 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
                 registerLauncher.launch(new Intent(this, RegisterActivity.class)));
     }
 
-    private void setupDashboardViews() {
-        binding.toolbarDashboard.setTitle(getString(R.string.title_habits));
-        binding.toolbarDashboard.inflateMenu(R.menu.menu_dashboard);
-        binding.toolbarDashboard.setOnMenuItemClickListener(this::onToolbarMenuClicked);
-
-        habitsBinding.rvHabits.setLayoutManager(new LinearLayoutManager(this));
-        habitsBinding.rvHabits.setAdapter(habitAdapter);
-
-        buildCategoryChips();
-        habitsBinding.etSearchHabits.addTextChangedListener(simpleWatcher(this::applyHabitFilters));
-
-        binding.bottomNavigation.setOnItemSelectedListener(this::onBottomNavigationSelected);
-        binding.bottomNavigation.setSelectedItemId(R.id.nav_habits);
-
-        binding.fabAddHabit.setOnClickListener(v -> showTemplateChooser());
-        binding.fabScanHabit.setOnClickListener(v -> launchCameraScan());
-
-        // 日历翻月
-        calendarBinding.btnCalendarPrev.setOnClickListener(v -> shiftCalendarMonth(-1));
-        calendarBinding.btnCalendarNext.setOnClickListener(v -> shiftCalendarMonth(1));
-        calendarBinding.btnCalendarToday.setOnClickListener(v -> {
-            displayedMonth = null; // 复位到当月
-            updateCalendarPage();
-        });
-
-        profileBinding.btnEditProfile.setOnClickListener(v ->
-                profileEditLauncher.launch(new Intent(this, ProfileEditActivity.class)));
-        profileBinding.btnDeleteAccount.setOnClickListener(v -> confirmDeleteAccount());
-        profileBinding.btnShareReport.setOnClickListener(v -> shareAchievementCard());
-        profileBinding.btnThemeMode.setOnClickListener(v -> showThemeModeChooser());
-        updateThemeModeButtonText();
-        profileBinding.cardBadgeWall.setOnClickListener(v ->
-                startActivity(new Intent(this, BadgeWallActivity.class)));
-    }
-
     private void loadLoginState() {
         // 安全整改：只回填记住的用户名，不再回填密码（密码已不再持久化）。
         binding.etLoginUsername.setText(repository.getSavedUsername());
         binding.cbRememberPassword.setChecked(repository.isRememberPassword());
 
-        currentUser = repository.getCurrentUser();
-        if (TextUtils.isEmpty(currentUser)) {
-            showLoginPage();
-        } else {
-            showDashboardPage();
-            refreshDashboardData();
+        // 已登录：直接进 Dashboard，不停留在登录页。
+        if (!TextUtils.isEmpty(repository.getCurrentUser())) {
+            goToDashboard();
         }
     }
 
@@ -506,15 +142,15 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         // PBKDF2 校验较重，放后台线程，避免阻塞 UI；校验期间禁用按钮防重复点击
         binding.btnLogin.setEnabled(false);
         boolean remember = binding.cbRememberPassword.isChecked();
-        runInBackground(() -> {
+        backgroundExecutor.execute(() -> {
             boolean ok = repository.validateLogin(username, password);
             if (ok) {
                 repository.saveLoginState(username, password, remember, username);
                 // 归属修复：把无主/孤儿习惯（owner 为空或账号已不存在）认领给当前登录账号，
-                // 避免旧数据被永久固定 student、或删号残留数据永远失联。放后台线程（DB 写）。
+                // 避免旧数据被永久固定 student、或删号残留数据永远失联。
                 repository.claimOrphanHabits(username);
                 // 登录后重排本账号提醒：退出/切换账号时闹钟已被取消，未登录重启也不会排，
-                // 登录是恢复本账号提醒的统一时机。放在后台线程（读习惯 + 调度 IO）。
+                // 登录是恢复本账号提醒的统一时机。
                 repository.rescheduleAllReminders();
                 // 登录后刷新桌面小组件：组件读的是当前账号数据，切换账号后需同步。
                 StreakWidgetProvider.refreshAll(getApplicationContext());
@@ -522,10 +158,8 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             postToUi(() -> {
                 binding.btnLogin.setEnabled(true);
                 if (ok) {
-                    currentUser = username;
-                    showDashboardPage();
-                    refreshDashboardData();
                     Toast.makeText(this, R.string.toast_login_success, Toast.LENGTH_SHORT).show();
+                    goToDashboard();
                 } else {
                     Toast.makeText(this, R.string.toast_login_failed, Toast.LENGTH_SHORT).show();
                 }
@@ -533,851 +167,13 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         });
     }
 
-
-    private boolean onToolbarMenuClicked(@NonNull MenuItem item) {
-        int itemId = item.getItemId();
-        if (itemId == R.id.action_export) {
-            exportBackup();
-            return true;
-        }
-        if (itemId == R.id.action_import) {
-            confirmImport();
-            return true;
-        }
-        if (itemId == R.id.action_logout) {
-            // 退出要取消本账号提醒（读习惯 + 取消闹钟，属 IO），放后台线程；
-            // 先切回登录页给即时反馈，再在后台清理并刷新小组件。
-            currentUser = "";
-            showLoginPage();
-            runInBackground(() -> {
-                repository.logout();
-                StreakWidgetProvider.refreshAll(getApplicationContext());
-            });
-            return true;
-        }
-        return false;
-    }
-
-    private boolean onBottomNavigationSelected(@NonNull MenuItem item) {
-        binding.toolbarDashboard.setTitle(item.getTitle());
-        habitsBinding.pageHabits.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
-        calendarBinding.pageCalendar.setVisibility(item.getItemId() == R.id.nav_calendar ? View.VISIBLE : View.GONE);
-        statsBinding.pageStats.setVisibility(item.getItemId() == R.id.nav_stats ? View.VISIBLE : View.GONE);
-        profileBinding.pageProfile.setVisibility(item.getItemId() == R.id.nav_profile ? View.VISIBLE : View.GONE);
-        binding.fabAddHabit.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
-        binding.fabScanHabit.setVisibility(item.getItemId() == R.id.nav_habits ? View.VISIBLE : View.GONE);
-        if (item.getItemId() == R.id.nav_habits) {
-            refreshSlogan();
-        }
-        if (item.getItemId() == R.id.nav_stats) {
-            statsBinding.pieCategory.replay();
-        }
-        // 进入日历页时复位到当月，避免停留在上次翻到的历史月份
-        if (item.getItemId() == R.id.nav_calendar && displayedMonth != null) {
-            displayedMonth = null;
-            updateCalendarPage();
-        }
-        return true;
-    }
-
-    private void showLoginPage() {
-        // 回到登录界面时按当前持久化状态重置输入框：只回填用户名，绝不回填密码
-        //（安全整改：密码不再持久化），并清空上一次残留在密码框里的输入。
-        binding.etLoginUsername.setText(repository.getSavedUsername());
-        binding.etLoginPassword.setText("");
-        binding.cbRememberPassword.setChecked(repository.isRememberPassword());
-        binding.loginContainer.setVisibility(View.VISIBLE);
-        binding.dashboardRoot.setVisibility(View.GONE);
-    }
-
-    private void showDashboardPage() {
-        binding.loginContainer.setVisibility(View.GONE);
-        binding.dashboardRoot.setVisibility(View.VISIBLE);
-    }
-
-    private void refreshDashboardData() {
-        today = HabitUtils.today();
-        currentUser = repository.getCurrentUser();
-        // 读习惯/账号涉及读盘+JSON 解析，放后台线程避免阻塞 UI（真机上会掉帧）。
-        // 读完回主线程再更新视图。
-        runInBackground(() -> {
-            final List<HabitItem> habits = repository.readHabits();
-            final String displayName = resolveDisplayName();
-            postToUi(() -> {
-                allHabits.clear();
-                allHabits.addAll(habits);
-                binding.toolbarDashboard.setSubtitle(getString(R.string.greeting_welcome, displayName));
-                applyHabitFilters();
-                updateSummarySection();
-                updateCalendarPage();
-                updateStatsPage();
-                updateProfilePage();
-            });
-        });
-    }
-
-    private void applyHabitFilters() {
-        String query = getText(habitsBinding.etSearchHabits);
-        List<HabitItem> filtered = HabitUtils.filterHabits(allHabits, query, selectedCategory);
-        habitAdapter.submitList(filtered, today);
-        habitsBinding.tvEmptyHabits.setVisibility(filtered.isEmpty() ? View.VISIBLE : View.GONE);
-    }
-
-    private void updateSummarySection() {
-        int completedToday = 0;
-        int bestStreak = 0;
-        for (HabitItem item : allHabits) {
-            if (item.getCompletedDates().contains(today)) {
-                completedToday++;
-            }
-            bestStreak = Math.max(bestStreak, HabitUtils.currentStreak(item.getCompletedDates()));
-        }
-        habitsBinding.tvSummaryHabitCount.setText(String.valueOf(allHabits.size()));
-        habitsBinding.tvSummaryTodayCount.setText(String.valueOf(completedToday));
-        habitsBinding.tvSummaryBestStreak.setText(getString(R.string.stat_streak_days_nospace, bestStreak));
-    }
-
-    private void refreshSlogan() {
-        habitsBinding.tvSummarySlogan.setText(getResources().getStringArray(R.array.motivational_quotes)[new java.util.Random().nextInt(getResources().getStringArray(R.array.motivational_quotes).length)]);
-    }
-
-    private void updateCalendarPage() {
-        // 显示锚点：翻月时用 displayedMonth，否则用今天所在月
-        String anchor = displayedMonth != null ? displayedMonth : today;
-        calendarBinding.tvCalendarMonth.setText(
-                LocalDate.parse(anchor).format(DateTimeFormatter.ofPattern("yyyy 年 MM 月", Locale.CHINA))
-        );
-        // 非当月时才显示「今天」快捷按钮
-        boolean viewingCurrentMonth = YearMonth.from(LocalDate.parse(anchor))
-                .equals(YearMonth.from(LocalDate.parse(today)));
-        calendarBinding.btnCalendarToday.setVisibility(viewingCurrentMonth ? View.GONE : View.VISIBLE);
-
-        Set<String> completedSet = new HashSet<>();
-        for (HabitItem item : allHabits) {
-            completedSet.addAll(item.getCompletedDates());
-        }
-        // 锚点决定显示哪个月，today 仅用于高亮今日
-        List<CalendarCell> cells = HabitUtils.buildMonthCells(anchor, today, completedSet);
-        calendarBinding.gridCalendar.removeAllViews();
-        int cellSize = (int) (40 * getResources().getDisplayMetrics().density);
-        for (CalendarCell cell : cells) {
-            TextView textView = new TextView(this);
-            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-            params.width = 0;
-            params.height = cellSize;
-            params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-            textView.setLayoutParams(params);
-            textView.setGravity(android.view.Gravity.CENTER);
-            textView.setText(cell.isEmpty() ? "" : String.valueOf(cell.getDay()));
-            textView.setTextColor(ContextCompat.getColor(this, R.color.streak_text_primary));
-            if (cell.isToday()) {
-                textView.setBackgroundResource(R.drawable.bg_calendar_today);
-                textView.setTextColor(ContextCompat.getColor(this, R.color.streak_on_primary));
-            } else if (cell.isCompleted()) {
-                textView.setBackgroundResource(R.drawable.bg_calendar_completed);
-                textView.setTextColor(ContextCompat.getColor(this, R.color.streak_accent));
-            } else {
-                textView.setBackgroundResource(R.drawable.bg_calendar_default);
-                textView.setTextColor(ContextCompat.getColor(this, R.color.streak_text_faint));
-            }
-            if (!cell.isEmpty()) {
-                textView.setOnClickListener(v -> showCalendarDetailDialog(cell.getDate()));
-            }
-            calendarBinding.gridCalendar.addView(textView);
-        }
-
-        calendarBinding.layoutRankingContainer.removeAllViews();
-        if (allHabits.isEmpty()) {
-            calendarBinding.tvCalendarEmpty.setVisibility(View.VISIBLE);
-            return;
-        }
-        calendarBinding.tvCalendarEmpty.setVisibility(View.GONE);
-        List<HabitItem> ranking = new ArrayList<>(allHabits);
-        ranking.sort((a, b) -> Integer.compare(
-                HabitUtils.currentStreak(b.getCompletedDates()),
-                HabitUtils.currentStreak(a.getCompletedDates())
-        ));
-        int limit = Math.min(5, ranking.size());
-        for (int i = 0; i < limit; i++) {
-            HabitItem item = ranking.get(i);
-            ItemStatRowBinding rowBinding = ItemStatRowBinding.inflate(getLayoutInflater(), calendarBinding.layoutRankingContainer, false);
-            rowBinding.tvStatLabel.setText((i + 1) + ". " + item.getTitle() + " · " + item.getCategory());
-            rowBinding.tvStatValue.setText(getString(R.string.stat_streak_days, HabitUtils.currentStreak(item.getCompletedDates())));
-            calendarBinding.layoutRankingContainer.addView(rowBinding.getRoot());
-        }
-    }
-
-    /** 日历翻月：delta 为 -1（上月）或 +1（下月）。 */
-    private void shiftCalendarMonth(int delta) {
-        String anchor = displayedMonth != null ? displayedMonth : today;
-        try {
-            LocalDate shifted = LocalDate.parse(anchor).plusMonths(delta).withDayOfMonth(1);
-            displayedMonth = shifted.toString();
-        } catch (Exception ignored) {
-            displayedMonth = null;
-        }
-        updateCalendarPage();
-    }
-
-    private void updateStatsPage() {
-        int totalCheckIns = HabitUtils.totalCheckIns(allHabits);
-        int currentBest = HabitUtils.bestCurrentStreak(allHabits);
-        int longestBest = HabitUtils.bestLongestStreak(allHabits);
-        tvStatsHabitCount.setText(String.valueOf(allHabits.size()));
-        tvStatsTotalCheckIns.setText(String.valueOf(totalCheckIns));
-        tvStatsBestStreak.setText(getString(R.string.stat_streak_days_nospace, currentBest));
-        tvStatsCompletionRate.setText(HabitUtils.completionRate(allHabits) + "%");
-
-        // 热力图数据：把所有习惯的去重打卡按日期聚合成计数
-        statsBinding.heatmap.setData(buildHeatmapCounts());
-
-        statsBinding.layoutOverviewStats.removeAllViews();
-        // 当前连续 vs 历史最长
-        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_overview_current_vs_longest_label),
-                getString(R.string.stat_overview_current_vs_longest_value, currentBest, longestBest));
-        // 周环比：本周 vs 上周
-        int thisWeek = HabitUtils.weeklyCheckIns(allHabits);
-        int lastWeek = HabitUtils.lastWeekCheckIns(allHabits);
-        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_last7_checkins_label),
-                thisWeek + "  " + weekTrendText(thisWeek, lastWeek));
-        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_month_checkins_label), String.valueOf(HabitUtils.monthlyCheckIns(allHabits)));
-        int reminderCount = 0;
-        for (HabitItem item : allHabits) {
-            if (item.isReminderEnabled()) {
-                reminderCount++;
-            }
-        }
-        addStatRow(statsBinding.layoutOverviewStats, getString(R.string.stat_reminder_enabled_label), String.valueOf(reminderCount));
-
-        updateInsights();
-
-        statsBinding.layoutCategoryStats.removeAllViews();
-        if (allHabits.isEmpty()) {
-            statsBinding.tvEmptyStats.setVisibility(View.VISIBLE);
-            statsBinding.pieCategory.setVisibility(View.GONE);
-            statsBinding.chipGroupPieLegend.setVisibility(View.GONE);
-            return;
-        }
-        statsBinding.tvEmptyStats.setVisibility(View.GONE);
-        updateCategoryPie();
-        List<String> categories = HabitUtils.categories();
-        for (String category : categories) {
-            if ("全部".equals(category)) {
-                continue;
-            }
-            int count = 0;
-            for (HabitItem item : allHabits) {
-                if (category.equals(item.getCategory())) {
-                    count += HabitUtils.uniqueCheckIns(item);
-                }
-            }
-            if (count > 0) {
-                addStatRow(statsBinding.layoutCategoryStats, category, String.valueOf(count));
-            }
-        }
-    }
-
-    /** 把所有习惯的去重打卡日期聚合成「日期 -> 次数」，喂给热力图。 */
-    private java.util.Map<String, Integer> buildHeatmapCounts() {
-        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
-        for (HabitItem item : allHabits) {
-            if (item.getCompletedDates() == null) {
-                continue;
-            }
-            for (String date : new HashSet<>(item.getCompletedDates())) {
-                if (date == null) {
-                    continue;
-                }
-                Integer prev = counts.get(date);
-                counts.put(date, prev == null ? 1 : prev + 1);
-            }
-        }
-        return counts;
-    }
-
-    /** 周环比文案：↑N / ↓N / 持平。 */
-    private String weekTrendText(int thisWeek, int lastWeek) {
-        int diff = thisWeek - lastWeek;
-        if (diff > 0) {
-            return getString(R.string.weekly_compare_up, diff);
-        }
-        if (diff < 0) {
-            return getString(R.string.weekly_compare_down, (-diff));
-        }
-        return getString(R.string.weekly_compare_equal);
-    }
-
-    private void updateCategoryPie() {
-        List<CategoryPieChart.Slice> slices = new ArrayList<>();
-        int totalHabits = 0;
-        for (String category : HabitUtils.categories()) {
-            if ("全部".equals(category)) {
-                continue;
-            }
-            int count = 0;
-            for (HabitItem item : allHabits) {
-                if (category.equals(item.getCategory())) {
-                    count++;
-                }
-            }
-            if (count > 0) {
-                int color = ContextCompat.getColor(this, categoryColor(category));
-                slices.add(new CategoryPieChart.Slice(category, count, color));
-                totalHabits += count;
-            }
-        }
-
-        statsBinding.pieCategory.setVisibility(View.VISIBLE);
-        statsBinding.chipGroupPieLegend.setVisibility(View.VISIBLE);
-        statsBinding.pieCategory.setData(slices, String.valueOf(totalHabits));
-
-        statsBinding.chipGroupPieLegend.removeAllViews();
-        for (CategoryPieChart.Slice slice : slices) {
-            int percent = totalHabits == 0 ? 0 : Math.round(slice.value * 100f / totalHabits);
-            Chip chip = new Chip(this);
-            chip.setText(slice.label + " " + percent + "%");
-            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.streak_surface_alt)));
-            chip.setChipStrokeWidth(0f);
-            chip.setChipIconVisible(true);
-            chip.setChipIcon(new android.graphics.drawable.ColorDrawable(slice.color));
-            chip.setEnsureMinTouchTargetSize(false);
-            chip.setClickable(false);
-            statsBinding.chipGroupPieLegend.addView(chip);
-        }
-    }
-
-    private int categoryColor(String category) {
-        switch (category) {
-            case "学习":
-                return R.color.cat_study;
-            case "运动":
-                return R.color.cat_sport;
-            case "生活":
-                return R.color.cat_life;
-            case "工作":
-                return R.color.cat_work;
-            case "阅读":
-                return R.color.cat_read;
-            default:
-                return R.color.streak_primary;
-        }
-    }
-
-    /**
-     * 优先返回昵称（displayName），为空时退回用户名。
-     * 顶栏问候语与「我的」页面均用此口径。
-     */
-    private String resolveDisplayName() {
-        UserAccount account = repository.getCurrentAccount();
-        if (account != null && !TextUtils.isEmpty(account.getDisplayName())) {
-            return account.getDisplayName();
-        }
-        return currentUser;
-    }
-
-    private void updateProfilePage() {
-        UserAccount account = repository.getCurrentAccount();
-        String displayName = resolveDisplayName();
-        String motto = getString(R.string.profile_motto);
-        String avatarUri = null;
-        if (account != null) {
-            if (!TextUtils.isEmpty(account.getMotto())) {
-                motto = account.getMotto();
-            }
-            avatarUri = account.getAvatarUri();
-        }
-        profileBinding.tvProfileName.setText(displayName);
-        profileBinding.tvProfileMotto.setText(motto);
-        profileBinding.tvProfileAvatar.setText(
-                displayName.isEmpty() ? "U" : displayName.substring(0, 1).toUpperCase(Locale.ROOT));
-
-        if (!TextUtils.isEmpty(avatarUri)) {
-            profileBinding.ivProfileAvatar.setVisibility(View.VISIBLE);
-            if (AvatarPresets.isPreset(avatarUri)) {
-                profileBinding.ivProfileAvatar.setImageResource(AvatarPresets.drawableFor(avatarUri));
-            } else {
-                com.streak.app.util.ImageLoader.load(profileBinding.ivProfileAvatar, avatarUri, 240);
-            }
-            profileBinding.tvProfileAvatar.setVisibility(View.GONE);
-        } else {
-            profileBinding.ivProfileAvatar.setVisibility(View.GONE);
-            profileBinding.ivProfileAvatar.setImageDrawable(null);
-            profileBinding.tvProfileAvatar.setVisibility(View.VISIBLE);
-        }
-
-        int totalCheckIns = HabitUtils.totalCheckIns(allHabits);
-        int bestStreak = 0;
-        int completedToday = 0;
-        int reminderCount = 0;
-        HabitItem bestHabit = null;
-        for (HabitItem item : allHabits) {
-            if (item.getCompletedDates().contains(today)) {
-                completedToday++;
-            }
-            if (item.isReminderEnabled()) {
-                reminderCount++;
-            }
-            int streak = HabitUtils.currentStreak(item.getCompletedDates());
-            if (streak > bestStreak) {
-                bestStreak = streak;
-                bestHabit = item;
-            }
-        }
-        tvProfileHabitCount.setText(String.valueOf(allHabits.size()));
-        tvProfileCheckInCount.setText(String.valueOf(totalCheckIns));
-        tvProfileTodayCount.setText(String.valueOf(completedToday));
-        tvProfileBestStreak.setText(getString(R.string.stat_streak_days_nospace, bestStreak));
-
-        profileBinding.layoutProfileInfo.removeAllViews();
-        addStatRow(profileBinding.layoutProfileInfo, getString(R.string.profile_current_user_label), displayName);
-        addStatRow(profileBinding.layoutProfileInfo, getString(R.string.profile_today_date_label), today);
-        addStatRow(profileBinding.layoutProfileInfo, getString(R.string.profile_reminder_enabled_label), getString(R.string.count_items_suffix, reminderCount));
-
-        if (bestHabit == null) {
-            profileBinding.cardBestHabit.setVisibility(View.GONE);
-        } else {
-            profileBinding.cardBestHabit.setVisibility(View.VISIBLE);
-            profileBinding.tvBestHabitTitle.setText(bestHabit.getTitle());
-            profileBinding.tvBestHabitCategory.setText(getString(R.string.best_habit_category, bestHabit.getCategory()));
-            profileBinding.tvBestHabitStreak.setText(getString(R.string.best_habit_streak, HabitUtils.currentStreak(bestHabit.getCompletedDates())));
-        }
-
-        profileBinding.layoutProfileCategories.removeAllViews();
-        for (String category : HabitUtils.categories()) {
-            if ("全部".equals(category)) {
-                continue;
-            }
-            int count = 0;
-            for (HabitItem item : allHabits) {
-                if (category.equals(item.getCategory())) {
-                    count++;
-                }
-            }
-            if (count > 0) {
-                addStatRow(profileBinding.layoutProfileCategories, category, getString(R.string.count_items_suffix, count));
-            }
-        }
-
-        updateBadgePreview();
-    }
-
-    private void updateBadgePreview() {
-        List<Badge> badges = BadgeUtils.evaluate(allHabits);
-        int unlocked = BadgeUtils.unlockedCount(badges);
-        profileBinding.tvBadgeProgress.setText(unlocked + " / " + badges.size());
-
-        profileBinding.layoutBadgePreview.removeAllViews();
-        List<Badge> unlockedBadges = new ArrayList<>();
-        for (Badge badge : badges) {
-            if (badge.isUnlocked()) {
-                unlockedBadges.add(badge);
-            }
-        }
-
-        if (unlockedBadges.isEmpty()) {
-            profileBinding.tvBadgeEmpty.setVisibility(View.VISIBLE);
-            profileBinding.scrollBadgePreview.setVisibility(View.GONE);
-            return;
-        }
-        profileBinding.tvBadgeEmpty.setVisibility(View.GONE);
-        profileBinding.scrollBadgePreview.setVisibility(View.VISIBLE);
-
-        for (Badge badge : unlockedBadges) {
-            ItemBadgeBinding badgeBinding =
-                    ItemBadgeBinding.inflate(getLayoutInflater(), profileBinding.layoutBadgePreview, false);
-            badgeBinding.tvBadgeIcon.setText(badge.getEmoji());
-            badgeBinding.tvBadgeName.setText(badge.getTitle());
-            badgeBinding.tvBadgeIcon.setBackgroundResource(R.drawable.bg_badge_unlocked);
-            badgeBinding.getRoot().setOnClickListener(v ->
-                    startActivity(new Intent(this, BadgeWallActivity.class)));
-            profileBinding.layoutBadgePreview.addView(badgeBinding.getRoot());
-        }
-    }
-
-    private void exportBackup() {
-        Toast.makeText(this, R.string.toast_packing_backup, Toast.LENGTH_SHORT).show();
-        runInBackground(() -> {
-            File exportFile = repository.exportBackup();
-            postToUi(() -> {
-                // exportBackup 失败会返回 null（磁盘满/写盘异常），此时提示而非崩溃
-                if (exportFile == null) {
-                    Toast.makeText(this, R.string.toast_backup_pack_failed, Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                pendingExportFile = exportFile;
-                exportLauncher.launch(exportFile.getName());
-            });
-        });
-    }
-
     private void confirmImport() {
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dialog_import_title)
-                .setMessage(R.string.dialog_import_message)
-                .setNegativeButton(R.string.action_cancel, null)
-                .setPositiveButton(R.string.dialog_import_positive, (dialog, which) ->
-                        importLauncher.launch(new String[]{"application/zip", "application/octet-stream"}))
-                .show();
+        importLauncher.launch(new String[]{"application/zip", "application/octet-stream"});
     }
 
-    private void confirmDeleteAccount() {
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dialog_delete_account_title)
-                .setMessage(R.string.dialog_delete_account_message)
-                .setNegativeButton(R.string.action_cancel, null)
-                .setPositiveButton(R.string.action_delete, (dialog, which) -> {
-                    // 删号涉及读写 JSON、取消闹钟、删图片，放后台线程避免阻塞 UI
-                    runInBackground(() -> {
-                        repository.deleteCurrentAccountAndData();
-                        // 删号已清空本账号习惯，刷新小组件避免残留已删账号的旧进度
-                        StreakWidgetProvider.refreshAll(getApplicationContext());
-                        postToUi(() -> {
-                            Toast.makeText(this, R.string.toast_account_deleted, Toast.LENGTH_SHORT).show();
-                            showLoginPage();
-                        });
-                    });
-                })
-                .show();
-    }
-
-    private void openEditor(long habitId) {
-        Intent intent = new Intent(this, HabitEditorActivity.class);
-        if (habitId > 0) {
-            intent.putExtra(HabitEditorActivity.EXTRA_HABIT_ID, habitId);
-        }
-        editorLauncher.launch(intent);
-    }
-
-    /**
-     * 空白新建：若习惯页选中了具体分类（非「全部」），把该分类带进编辑器作为默认分类；
-     * 停在「全部」时不带，编辑器沿用自身默认分类。
-     */
-    private void openBlankEditorWithSelectedCategory() {
-        Intent intent = new Intent(this, HabitEditorActivity.class);
-        if (!"全部".equals(selectedCategory)) {
-            intent.putExtra(HabitEditorActivity.EXTRA_TPL_CATEGORY, selectedCategory);
-        }
-        editorLauncher.launch(intent);
-    }
-
-    private void showTemplateChooser() {
-        SheetTemplateChooserBinding sheetBinding = SheetTemplateChooserBinding.inflate(getLayoutInflater());
-        ViewGroup container = sheetBinding.layoutTemplateContent;
-        BottomSheetDialog dialog = new BottomSheetDialog(this);
-
-        // 空白新建：把当前选中的分类带进编辑器，选了「生活」新建就默认「生活」；
-        // 停在「全部」时不带分类，由编辑器用其自身默认值。
-        addTemplateRow(container, getString(R.string.template_blank_title), getString(R.string.template_blank_desc), () -> {
-            dialog.dismiss();
-            openBlankEditorWithSelectedCategory();
-        });
-
-        // 预置模板：当习惯页选中了具体分类（非「全部」）时，只展示该分类的模板
-        int shown = 0;
-        for (HabitTemplate template : HabitTemplate.presets()) {
-            if (!"全部".equals(selectedCategory)
-                    && !selectedCategory.equals(template.getCategory())) {
-                continue;
-            }
-            String desc = getString(R.string.template_row_desc, template.getCategory(), template.getReminderTime());
-            addTemplateRow(container, template.getTitle(), desc, () -> {
-                dialog.dismiss();
-                openEditorWithTemplate(template);
-            });
-            shown++;
-        }
-        // 该分类没有预置模板时给个提示，避免只剩「空白新建」显得像出错
-        if (shown == 0) {
-            addTemplateRow(container, getString(R.string.template_empty_category_title),
-                    getString(R.string.template_empty_category_desc), () -> {});
-        }
-
-        dialog.setContentView(sheetBinding.getRoot());
-        dialog.show();
-    }
-
-    private void addTemplateRow(ViewGroup container, String title, String desc, Runnable onClick) {
-        ItemTemplateOptionBinding rowBinding =
-                ItemTemplateOptionBinding.inflate(getLayoutInflater(), container, false);
-        rowBinding.tvTemplateTitle.setText(title);
-        rowBinding.tvTemplateDesc.setText(desc);
-        rowBinding.getRoot().setOnClickListener(v -> onClick.run());
-        container.addView(rowBinding.getRoot());
-    }
-
-    private void openEditorWithTemplate(HabitTemplate template) {
-        Intent intent = new Intent(this, HabitEditorActivity.class)
-                .putExtra(HabitEditorActivity.EXTRA_TPL_TITLE, template.getTitle())
-                .putExtra(HabitEditorActivity.EXTRA_TPL_CONTENT, template.getContent())
-                .putExtra(HabitEditorActivity.EXTRA_TPL_CATEGORY, template.getCategory())
-                .putExtra(HabitEditorActivity.EXTRA_TPL_REMINDER, template.getReminderTime())
-                .putExtra(HabitEditorActivity.EXTRA_TPL_TAGS, template.tagsText());
-        editorLauncher.launch(intent);
-    }
-
-    private void buildCategoryChips() {
-        habitsBinding.chipGroupCategories.removeAllViews();
-        for (String category : HabitUtils.categories()) {
-            Chip chip = new Chip(this);
-            chip.setText(category);
-            chip.setCheckable(true);
-            chip.setTag(category);
-            chip.setEnsureMinTouchTargetSize(false);
-            chip.setOnClickListener(v -> {
-                selectedCategory = String.valueOf(chip.getTag());
-                applyHabitFilters();
-            });
-            habitsBinding.chipGroupCategories.addView(chip);
-            if ("全部".equals(category)) {
-                chip.setChecked(true);
-            }
-        }
-    }
-
-    private void showCalendarDetailDialog(String date) {
-        SheetCalendarDetailBinding sheetBinding = SheetCalendarDetailBinding.inflate(getLayoutInflater());
-        BottomSheetDialog dialog = new BottomSheetDialog(this);
-        dialog.setContentView(sheetBinding.getRoot());
-        populateCalendarSheet(sheetBinding, date);
-        dialog.show();
-    }
-
-    private void populateCalendarSheet(SheetCalendarDetailBinding sheetBinding, String date) {
-        boolean isPast = date.compareTo(HabitUtils.today()) < 0;
-
-        List<HabitItem> completed = new ArrayList<>();
-        List<HabitItem> pending = new ArrayList<>();
-        for (HabitItem item : allHabits) {
-            if (item.getCompletedDates().contains(date)) {
-                completed.add(item);
-            } else {
-                pending.add(item);
-            }
-        }
-
-        sheetBinding.tvSheetDate.setText(getString(R.string.sheet_date_title, date));
-        sheetBinding.tvSheetSummary.setText(
-                getString(R.string.sheet_summary, completed.size(), pending.size())
-        );
-
-        ViewGroup container = sheetBinding.layoutSheetContent;
-        container.removeAllViews();
-
-        if (completed.isEmpty() && pending.isEmpty()) {
-            addSheetSectionTitle(container, getString(R.string.sheet_empty));
-        } else {
-            if (!pending.isEmpty()) {
-                addSheetSectionTitle(container, getString(R.string.sheet_section_pending));
-                for (HabitItem item : pending) {
-                    addSheetHabitRow(container, sheetBinding, item, date, false, isPast);
-                }
-            }
-            if (!completed.isEmpty()) {
-                addSheetSectionTitle(container, getString(R.string.sheet_section_done));
-                for (HabitItem item : completed) {
-                    addSheetHabitRow(container, sheetBinding, item, date, true, isPast);
-                }
-            }
-        }
-    }
-
-    private void addSheetSectionTitle(ViewGroup container, String title) {
-        TextView textView = new TextView(this);
-        textView.setText(title);
-        textView.setTextColor(ContextCompat.getColor(this, R.color.streak_muted));
-        textView.setTextSize(13f);
-        int top = (int) (12 * getResources().getDisplayMetrics().density);
-        textView.setPadding(0, top, 0, 0);
-        container.addView(textView);
-    }
-
-    private void addSheetHabitRow(ViewGroup container, SheetCalendarDetailBinding sheetBinding,
-                                  HabitItem item, String date, boolean completed, boolean isPast) {
-        ItemSheetHabitBinding rowBinding = ItemSheetHabitBinding.inflate(getLayoutInflater(), container, false);
-        rowBinding.tvSheetHabitTitle.setText(item.getTitle());
-        rowBinding.viewSheetDot.setBackgroundResource(
-                completed ? R.drawable.bg_status_done : R.drawable.bg_status_pending
-        );
-        rowBinding.tvSheetHabitStatus.setText(completed ? getString(R.string.status_completed) : getString(R.string.status_pending));
-        rowBinding.tvSheetHabitStatus.setTextColor(
-                ContextCompat.getColor(this, completed ? R.color.streak_accent : R.color.streak_muted)
-        );
-
-        if (isPast) {
-            rowBinding.btnSheetToggle.setVisibility(View.VISIBLE);
-            rowBinding.btnSheetToggle.setText(completed ? getString(R.string.action_undo) : getString(R.string.action_makeup));
-            rowBinding.btnSheetToggle.setOnClickListener(v -> {
-                // 原地更新数据并重建弹窗内容，支持连续补卡，不关闭弹窗。
-                toggleDateCheckIn(item.getId(), date, !completed);
-                populateCalendarSheet(sheetBinding, date);
-            });
-        }
-
-        container.addView(rowBinding.getRoot());
-
-        // 已完成且当天有备注/心情：在行下方追加一行灰字展示
-        if (completed) {
-            String note = item.getNote(date);
-            if (!note.isEmpty()) {
-                TextView noteView = new TextView(this);
-                noteView.setText("“" + note + "”");
-                noteView.setTextColor(ContextCompat.getColor(this, R.color.streak_muted));
-                noteView.setTextSize(13f);
-                int start = (int) (22 * getResources().getDisplayMetrics().density);
-                noteView.setPadding(start, 0, 0, (int) (6 * getResources().getDisplayMetrics().density));
-                container.addView(noteView);
-            }
-        }
-    }
-
-    private void toggleDateCheckIn(long habitId, String date, boolean add) {
-        // 先在内存里更新（快，UI 立即刷新，支持连续补卡不关闭弹窗），
-        // 再把读改写盘的磁盘 IO 放后台线程，避免在主线程连做三次读写盘造成卡顿/ANR。
-        for (HabitItem target : allHabits) {
-            if (target.getId() == habitId) {
-                List<String> dates = new ArrayList<>(target.getCompletedDates());
-                if (add) {
-                    if (!dates.contains(date)) dates.add(date);
-                } else {
-                    dates.remove(date);
-                }
-                target.setCompletedDates(dates);
-                break;
-            }
-        }
-        applyHabitFilters();
-        updateSummarySection();
-        updateCalendarPage();
-        updateStatsPage();
-        updateProfilePage();
-
-        // 后台持久化：只读改写这一条习惯（按 id），不整表覆盖，
-        // 避免与编辑/删除/提醒回执并发时用过期全量快照抹掉其它习惯的改动。
-        runInBackground(() -> {
-            HabitItem target = repository.findHabitById(habitId);
-            if (target == null) {
-                return;
-            }
-            List<String> dates = new ArrayList<>(target.getCompletedDates());
-            if (add) {
-                if (!dates.contains(date)) dates.add(date);
-            } else {
-                dates.remove(date);
-            }
-            target.setCompletedDates(dates);
-            repository.saveHabit(target);
-            // 日历补卡/取消也刷新桌面组件，保持进度一致
-            StreakWidgetProvider.refreshAll(getApplicationContext());
-        });
-    }
-
-    private void addStatRow(ViewGroup container, String label, String value) {
-        ItemStatRowBinding rowBinding = ItemStatRowBinding.inflate(getLayoutInflater(), container, false);
-        rowBinding.tvStatLabel.setText(label);
-        rowBinding.tvStatValue.setText(value);
-        container.addView(rowBinding.getRoot());
-    }
-
-    /**
-     * 填充统计页「智能洞察」卡片：最能坚持的习惯、打卡最活跃的星期几、断卡预警。
-     * 全部基于 {@link HabitAnalytics} 对现有打卡数据的聚合，无额外存储。
-     * 无习惯时隐藏整张卡片（与总览的空态一致）。
-     */
-    private void updateInsights() {
-        statsBinding.layoutInsights.removeAllViews();
-        if (allHabits.isEmpty()) {
-            statsBinding.cardInsights.setVisibility(View.GONE);
-            return;
-        }
-        statsBinding.cardInsights.setVisibility(View.VISIBLE);
-
-        // 最能坚持：历史最长连续最大者
-        HabitItem consistent = HabitAnalytics.mostConsistent(allHabits);
-        if (consistent != null) {
-            int longest = HabitUtils.longestStreak(consistent.getCompletedDates());
-            addStatRow(statsBinding.layoutInsights,
-                    getString(R.string.insight_most_consistent_label),
-                    getString(R.string.insight_most_consistent_value, consistent.getTitle(), longest));
-        }
-
-        // 最活跃的星期几
-        int weekday = HabitAnalytics.mostActiveWeekday(allHabits);
-        if (weekday > 0) {
-            int[] buckets = HabitAnalytics.checkInsByWeekday(allHabits);
-            addStatRow(statsBinding.layoutInsights,
-                    getString(R.string.insight_active_weekday_label),
-                    getString(R.string.insight_active_weekday_value,
-                            weekdayName(weekday), buckets[weekday - 1]));
-        }
-
-        // 断卡预警：距今未打卡最久的一个（达到阈值才提醒）
-        List<HabitItem> stale = HabitAnalytics.staleHabits(allHabits);
-        if (stale.isEmpty()) {
-            addStatRow(statsBinding.layoutInsights,
-                    getString(R.string.insight_stale_label),
-                    getString(R.string.insight_all_on_track));
-        } else {
-            HabitItem worst = stale.get(0);
-            int gap = HabitAnalytics.daysSinceLastCheckIn(worst);
-            String value = gap == Integer.MAX_VALUE
-                    ? getString(R.string.insight_stale_never_value, worst.getTitle())
-                    : getString(R.string.insight_stale_value, worst.getTitle(), gap);
-            addStatRow(statsBinding.layoutInsights,
-                    getString(R.string.insight_stale_label), value);
-        }
-    }
-
-    /** 星期序号(1=周一 ... 7=周日，对齐 DayOfWeek)转本地化名称。越界返回空串。 */
-    private String weekdayName(int isoDay) {
-        switch (isoDay) {
-            case 1: return getString(R.string.weekday_monday);
-            case 2: return getString(R.string.weekday_tuesday);
-            case 3: return getString(R.string.weekday_wednesday);
-            case 4: return getString(R.string.weekday_thursday);
-            case 5: return getString(R.string.weekday_friday);
-            case 6: return getString(R.string.weekday_saturday);
-            case 7: return getString(R.string.weekday_sunday);
-            default: return "";
-        }
-    }
-
-    private String getText(TextView textView) {
-        return String.valueOf(textView.getText()).trim();
-    }
-
-    private TextWatcher simpleWatcher(Runnable callback) {
-        return new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                callback.run();
-            }
-        };
-    }
-
-    private boolean copyFileToUri(File file, Uri uri) {
-        try (FileInputStream inputStream = new FileInputStream(file);
-             OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
-            if (outputStream == null) {
-                return false;
-            }
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = inputStream.read(buffer)) != -1) {
-                outputStream.write(buffer, 0, read);
-            }
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+    private void goToDashboard() {
+        startActivity(new Intent(this, DashboardActivity.class));
+        finish();
     }
 
     private void requestNotificationPermissionIfNeeded() {
@@ -1388,343 +184,16 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
         }
     }
 
-    @Override
-    public void onToggleComplete(HabitItem item) {
-        boolean doneToday = item.getCompletedDates() != null && item.getCompletedDates().contains(today);
-        if (doneToday) {
-            // 撤销打卡：删今天的打卡记录（含心情/耗时/照片），直写真相源
-            undoTodayCheckIn(item.getId());
-        } else {
-            // 打卡：弹底部录入层（心情/耗时/照片/备注，全部可选）
-            promptCheckInNote(item);
-        }
-    }
-
-    /**
-     * 打卡录入底部弹层：心情(1~5) + 耗时(分钟) + 照片 + 备注，全部可选。
-     * 「跳过」= 不带附加信息直接打卡；「保存」= 带上已填的富信息。
-     * 直接写 check_in_records 表（走 repository.upsertCheckIn），不经 completedDates/notes 派生字段，
-     * 才能携带心情/耗时/照片这些派生字段无法表达的信息。
-     */
-    private void promptCheckInNote(HabitItem item) {
-        // 取当刻的新鲜日期，不用缓存的 today：跨午夜仍在前台时缓存可能停在昨天。
-        final String date = HabitUtils.today();
-        SheetCheckInBinding sheetBinding = SheetCheckInBinding.inflate(getLayoutInflater());
-
-        // 绑定当前弹层状态到 Activity 字段，供拍照/相册回调（弹层关闭前生效）落地照片。
-        activeCheckInBinding = sheetBinding;
-        checkInHabitId = item.getId();
-        checkInDate = date;
-        checkInMood = 0;
-        checkInPhotoUri = null;
-
-        sheetBinding.tvCheckInTitle.setText(
-                getString(R.string.dialog_checkin_title, item.getTitle()));
-
-        // 若今天已存在记录（重复打卡/补充信息），预填其心情/耗时/备注/照片
-        runInBackground(() -> {
-            com.streak.app.model.CheckInRecord existing = repository.getCheckIn(item.getId(), date);
-            if (existing != null) {
-                postToUi(() -> {
-                    if (activeCheckInBinding != sheetBinding) {
-                        return; // 弹层已被替换/关闭
-                    }
-                    checkInMood = existing.getMood();
-                    highlightMood(sheetBinding, existing.getMood());
-                    if (existing.getDurationMinutes() > 0) {
-                        sheetBinding.etCheckInDuration.setText(
-                                String.valueOf(existing.getDurationMinutes()));
-                    }
-                    if (existing.getNote() != null) {
-                        sheetBinding.etCheckInNote.setText(existing.getNote());
-                    }
-                    if (existing.getPhotoUri() != null) {
-                        updateCheckInPhoto(existing.getPhotoUri());
-                    }
-                });
+    private void postToUi(Runnable action) {
+        mainThread.execute(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
             }
-        });
-
-        // 心情表情点选：点已选中的再取消（回到未记录）
-        TextView[] moods = {
-                sheetBinding.tvMood1, sheetBinding.tvMood2, sheetBinding.tvMood3,
-                sheetBinding.tvMood4, sheetBinding.tvMood5
-        };
-        for (int i = 0; i < moods.length; i++) {
-            final int level = i + 1;
-            moods[i].setOnClickListener(v -> {
-                checkInMood = (checkInMood == level) ? 0 : level;
-                highlightMood(sheetBinding, checkInMood);
-            });
-        }
-
-        sheetBinding.btnCheckInTakePhoto.setOnClickListener(v -> openCheckInCamera());
-        sheetBinding.btnCheckInPickPhoto.setOnClickListener(
-                v -> checkInGalleryLauncher.launch("image/*"));
-        sheetBinding.btnCheckInRemovePhoto.setOnClickListener(v -> removeCheckInPhoto());
-
-        BottomSheetDialog dialog = new BottomSheetDialog(this);
-        dialog.setContentView(sheetBinding.getRoot());
-        // 弹层消失时清理绑定；若未点保存且拍/选了照片未落库，删临时照片避免残留。
-        dialog.setOnDismissListener(d -> {
-            if (activeCheckInBinding == sheetBinding) {
-                if (!checkInSaved && checkInPhotoUri != null) {
-                    repository.deletePhoto(checkInPhotoUri);
-                }
-                activeCheckInBinding = null;
-                checkInPhotoUri = null;
-                checkInSaved = false;
-            }
-        });
-
-        sheetBinding.btnCheckInSkip.setOnClickListener(v -> {
-            checkInSaved = true; // 跳过也算完成打卡，不清照片（本就没拍）
-            writeCheckIn(item.getId(), date, 0, 0, null, null);
-            dialog.dismiss();
-        });
-        sheetBinding.btnCheckInSave.setOnClickListener(v -> {
-            int duration = parseDuration(sheetBinding.etCheckInDuration.getText());
-            String note = String.valueOf(sheetBinding.etCheckInNote.getText()).trim();
-            checkInSaved = true; // 标记已保存，dismiss 时不清照片
-            writeCheckIn(item.getId(), date, checkInMood, duration,
-                    note.isEmpty() ? null : note, checkInPhotoUri);
-            dialog.dismiss();
-        });
-        dialog.show();
-    }
-
-    /** 高亮选中的心情表情，其余取消选中。level=0 表示全不选。 */
-    private void highlightMood(SheetCheckInBinding binding, int level) {
-        TextView[] moods = {
-                binding.tvMood1, binding.tvMood2, binding.tvMood3,
-                binding.tvMood4, binding.tvMood5
-        };
-        for (int i = 0; i < moods.length; i++) {
-            moods[i].setSelected(i + 1 == level);
-        }
-    }
-
-    /** 从耗时输入解析非负分钟数，非法/空返回 0。 */
-    private int parseDuration(CharSequence text) {
-        try {
-            int value = Integer.parseInt(String.valueOf(text).trim());
-            return Math.max(0, value);
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    /** 心情等级(1..5)映射到表情；0/越界返回空串。与打卡弹层的表情表一致。 */
-    private String moodEmoji(int mood) {
-        switch (mood) {
-            case 1: return "😞";
-            case 2: return "😕";
-            case 3: return "😐";
-            case 4: return "🙂";
-            case 5: return "😄";
-            default: return "";
-        }
-    }
-
-    private void openCheckInCamera() {
-        if (androidx.core.content.ContextCompat.checkSelfPermission(
-                this, Manifest.permission.CAMERA)
-                == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            launchCheckInCamera();
-        } else {
-            checkInCameraPermissionLauncher.launch(Manifest.permission.CAMERA);
-        }
-    }
-
-    private void launchCheckInCamera() {
-        com.streak.app.model.CameraCaptureInfo info = repository.createCameraCapture();
-        pendingCheckInCameraPath = info.getFilePath();
-        checkInCameraLauncher.launch(info.getUri());
-    }
-
-    /** 更新弹层里的打卡照片预览；替换旧的未落库照片时删除它，避免私有目录残留。 */
-    private void updateCheckInPhoto(String imageUri) {
-        if (checkInPhotoUri != null && !checkInPhotoUri.equals(imageUri)) {
-            repository.deletePhoto(checkInPhotoUri);
-        }
-        checkInPhotoUri = imageUri;
-        if (activeCheckInBinding != null) {
-            com.streak.app.util.ImageLoader.load(
-                    activeCheckInBinding.ivCheckInPhoto, imageUri, 720);
-            activeCheckInBinding.ivCheckInPhoto.setVisibility(View.VISIBLE);
-            activeCheckInBinding.btnCheckInRemovePhoto.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void removeCheckInPhoto() {
-        if (checkInPhotoUri != null) {
-            repository.deletePhoto(checkInPhotoUri);
-            checkInPhotoUri = null;
-        }
-        if (activeCheckInBinding != null) {
-            activeCheckInBinding.ivCheckInPhoto.setImageDrawable(null);
-            activeCheckInBinding.ivCheckInPhoto.setVisibility(View.GONE);
-            activeCheckInBinding.btnCheckInRemovePhoto.setVisibility(View.GONE);
-        }
-    }
-
-    // 弹层这一轮是否已提交保存/跳过，用于 dismiss 时决定是否清理未落库照片。
-    private boolean checkInSaved;
-
-    /**
-     * 打卡（新增/补充富信息）：直接写 check_in_records 表，后台线程执行，完成后刷新组件与页面。
-     */
-    private void writeCheckIn(long habitId, String date, int mood,
-                             int durationMinutes, String note, String photoUri) {
-        runInBackground(() -> {
-            repository.upsertCheckIn(habitId, date, mood, durationMinutes, note, photoUri);
-            // 打卡状态变了，主动刷新桌面组件（组件读的是同一份 Room 数据）
-            StreakWidgetProvider.refreshAll(getApplicationContext());
-            postToUi(this::refreshDashboardData);
+            action.run();
         });
     }
 
-    /**
-     * 撤销今日打卡：删记录表里今天那条（连同心情/耗时/照片）。后台线程执行。
-     */
-    private void undoTodayCheckIn(long habitId) {
-        final String todayDate = HabitUtils.today();
-        runInBackground(() -> {
-            repository.removeCheckIn(habitId, todayDate);
-            StreakWidgetProvider.refreshAll(getApplicationContext());
-            postToUi(this::refreshDashboardData);
-        });
-    }
-
-    @Override
-    public void onEdit(HabitItem item) {
-        // 卡片上「编辑」直接进编辑页，不再经过预览弹窗
-        openEditor(item.getId());
-    }
-
-    @Override
-    public void onShare(HabitItem item) {
-        // 卡片上「分享」直接出二维码
-        showHabitQr(item);
-    }
-
-    private void showHabitQr(HabitItem item) {
-        SheetHabitQrBinding sheetBinding = SheetHabitQrBinding.inflate(getLayoutInflater());
-        sheetBinding.tvQrHabitTitle.setText(item.getTitle());
-
-        int sizePx = (int) (240 * getResources().getDisplayMetrics().density);
-        Bitmap qr = QrGenerator.generate(HabitQrCodec.encode(item), sizePx);
-        if (qr == null) {
-            Toast.makeText(this, R.string.toast_qr_generate_failed, Toast.LENGTH_SHORT).show();
-            return;
-        }
-        sheetBinding.ivQrImage.setImageBitmap(qr);
-
-        sheetBinding.btnSaveQr.setOnClickListener(v -> requestSaveQr(qr, item.getTitle()));
-
-        BottomSheetDialog dialog = new BottomSheetDialog(this);
-        dialog.setContentView(sheetBinding.getRoot());
-        dialog.show();
-    }
-
-    /**
-     * 保存二维码到相册。API 29+ 直接走 MediaStore 免权限；API 26-28 需先申请存储权限，
-     * 拿到后再保存（结果回到 storagePermissionLauncher 的回调）。
-     */
-    private void requestSaveQr(Bitmap qr, String title) {
-        if (qr == null) {
-            return;
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
-                && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            pendingSaveQrBitmap = qr;
-            pendingSaveQrTitle = title;
-            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
-            return;
-        }
-        saveQrToGallery(qr, title);
-    }
-
-    /** 在后台线程把二维码写入相册，避免阻塞主线程。 */
-    private void saveQrToGallery(Bitmap qr, String title) {
-        Toast.makeText(this, R.string.toast_saving_to_album, Toast.LENGTH_SHORT).show();
-        runInBackground(() -> {
-            Uri saved = repository.saveQrToGallery(qr, title);
-            postToUi(() -> Toast.makeText(
-                    this,
-                    saved != null ? getString(R.string.toast_saved_to_album) : getString(R.string.toast_save_failed_retry),
-                    Toast.LENGTH_SHORT
-            ).show());
-        });
-    }
-
-    private static final String[] THEME_LABELS = {"跟随系统", "浅色", "深色"};
-
-    /** 弹出主题模式选择：跟随系统 / 浅色 / 深色。 */
-    private void showThemeModeChooser() {
-        int current = repository.getThemeMode();
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dialog_dark_mode_title)
-                .setSingleChoiceItems(getResources().getStringArray(R.array.theme_options), current, (dialog, which) -> {
-                    dialog.dismiss();
-                    if (which != repository.getThemeMode()) {
-                        repository.setThemeMode(which);
-                        updateThemeModeButtonText();
-                        // 立即应用；夜间模式变化会自动重建当前 Activity
-                        StreakApp.applyTheme(which);
-                    }
-                })
-                .setNegativeButton(R.string.action_cancel, null)
-                .show();
-    }
-
-    private void updateThemeModeButtonText() {
-        int mode = repository.getThemeMode();
-        String[] themeLabels = getResources().getStringArray(R.array.theme_options);
-        String label = mode >= 0 && mode < themeLabels.length ? themeLabels[mode] : themeLabels[0];
-        profileBinding.btnThemeMode.setText(getString(R.string.btn_theme_mode_label, label));
-    }
-
-    /**
-     * 生成成就战报卡片并弹出「保存到相册 / 分享」选项。数据来自当前全部习惯。
-     */
-    /** 打开战报全屏预览页（可切维度、预览、保存/分享）。 */
-    private void shareAchievementCard() {
-        if (allHabits.isEmpty()) {
-            Toast.makeText(this, R.string.toast_no_habit_create_first, Toast.LENGTH_SHORT).show();
-            return;
-        }
-        Intent intent = new Intent(this, ShareReportActivity.class)
-                .putExtra(ShareReportActivity.EXTRA_DISPLAY_NAME, resolveDisplayName());
-        startActivity(intent);
-    }
-
-    @Override
-    public void onDelete(HabitItem item) {
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dialog_delete_habit_title)
-                .setMessage(getString(R.string.dialog_delete_habit_message, item.getTitle()))
-                .setNegativeButton(R.string.action_cancel, null)
-                .setPositiveButton(R.string.action_delete, (dialog, which) -> {
-                    // 读写 JSON、取消闹钟、删图片文件都放后台线程，避免阻塞主线程
-                    final long habitId = item.getId();
-                    final String imageUri = item.getImageUri();
-                    runInBackground(() -> {
-                        repository.deleteHabitById(habitId);
-                        repository.cancelReminder(habitId);
-                        repository.deletePhoto(imageUri);
-                        // 删除习惯后同步刷新桌面小组件（进度/总数已变）
-                        StreakWidgetProvider.refreshAll(getApplicationContext());
-                        postToUi(this::refreshDashboardData);
-                    });
-                })
-                .show();
-    }
-
-    @Override
-    public void onOpenDetail(HabitItem item) {
-        // 点击卡片主体进入只读详情页；详情页不改数据，无需 launcher 回传结果。
-        startActivity(HabitDetailActivity.newIntent(this, item.getId()));
+    private String getText(android.widget.EditText editText) {
+        return editText.getText() == null ? "" : editText.getText().toString().trim();
     }
 }
