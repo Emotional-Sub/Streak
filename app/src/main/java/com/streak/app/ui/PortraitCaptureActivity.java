@@ -3,8 +3,6 @@ package com.streak.app.ui;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Handler;
-import android.os.Looper;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
@@ -13,10 +11,8 @@ import com.google.zxing.client.android.Intents;
 import com.journeyapps.barcodescanner.CaptureActivity;
 import com.journeyapps.barcodescanner.DecoratedBarcodeView;
 import com.streak.app.R;
+import com.streak.app.util.AppExecutors;
 import com.streak.app.util.QrDecoder;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * 竖屏锁定的扫码 Activity，并在扫码界面内置「从相册选码」入口（仿主流扫一扫）。
@@ -30,9 +26,6 @@ import java.util.concurrent.Executors;
 public class PortraitCaptureActivity extends CaptureActivity {
 
     private static final int REQ_PICK_QR_IMAGE = 0x51;
-
-    private final ExecutorService backgroundExecutor = Executors.newSingleThreadExecutor();
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected DecoratedBarcodeView initializeContent() {
@@ -68,9 +61,11 @@ public class PortraitCaptureActivity extends CaptureActivity {
             return;
         }
         Toast.makeText(this, R.string.toast_recognizing_qr, Toast.LENGTH_SHORT).show();
-        backgroundExecutor.execute(() -> {
+        // 解码是纯计算，走应用级 computation 池；结果回主线程。共享池不在此关闭。
+        AppExecutors executors = AppExecutors.getInstance();
+        executors.computation().execute(() -> {
             String raw = QrDecoder.decodeFromUri(this, uri);
-            mainHandler.post(() -> onImageDecoded(raw));
+            executors.mainThread().execute(() -> onImageDecoded(raw));
         });
     }
 
@@ -88,11 +83,5 @@ public class PortraitCaptureActivity extends CaptureActivity {
         result.putExtra(Intents.Scan.RESULT, raw);
         setResult(Activity.RESULT_OK, result);
         finish();
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        backgroundExecutor.shutdownNow();
     }
 }
