@@ -10,6 +10,7 @@ import com.streak.app.model.HabitItem;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -179,5 +180,45 @@ public class HabitRepository {
         }
         checkInRepository.deleteCheckInPhotos(habitId);
         database.runInTransaction(() -> habitDao.deleteByIdForOwner(habitId, owner));
+    }
+
+    /**
+     * 认领「孤儿习惯」，修复旧数据永久固定 student 的问题。
+     *
+     * <p><b>为什么需要。</b>旧 JSON 时代习惯无归属，迁移/导入时统一固定归给演示账号 student；
+     * 删号时若残留了归属已删账号的习惯，这些习惯也会成为「登不进去的账号」名下的孤儿数据，
+     * 用户永远看不到。原实现把归属永久钉死在 student，非 student 用户即使是这些数据的真实主人也拿不回。</p>
+     *
+     * <p><b>孤儿定义。</b>习惯的 {@code ownerUsername} 为空，<b>或</b>其归属账号已不在账号表里
+     * （{@code validOwners} 传入所有仍存在的用户名）。归属账号仍存在的习惯（含 student 的演示数据、
+     * 其它账号的正常数据）<b>绝不认领</b>，避免跨账号窃取。</p>
+     *
+     * <p><b>认领时机与策略。</b>由门面在登录成功后调用，把孤儿习惯改归当前登录账号。
+     * 数据总比丢失好，且「谁先登录谁认领无主数据」是无后端本地应用的合理兜底。
+     * 认领与打卡记录无关（记录靠 habitId 关联，不随 owner 变化）。返回认领的条数。</p>
+     */
+    public int claimOrphanHabits(String claimant, Set<String> validOwners) {
+        if (claimant == null || claimant.isEmpty()) {
+            return 0;
+        }
+        List<HabitItem> all = habitDao.getAll();
+        if (all == null || all.isEmpty()) {
+            return 0;
+        }
+        List<HabitItem> orphans = new ArrayList<>();
+        for (HabitItem habit : all) {
+            String owner = habit.getOwnerUsername();
+            boolean orphan = owner == null || owner.isEmpty()
+                    || validOwners == null || !validOwners.contains(owner);
+            if (orphan) {
+                habit.setOwnerUsername(claimant);
+                orphans.add(habit);
+            }
+        }
+        if (orphans.isEmpty()) {
+            return 0;
+        }
+        database.runInTransaction(() -> habitDao.upsertAll(orphans));
+        return orphans.size();
     }
 }
