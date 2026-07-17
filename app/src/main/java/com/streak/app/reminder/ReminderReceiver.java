@@ -16,6 +16,8 @@ import com.streak.app.R;
 import com.streak.app.model.HabitItem;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.ui.MainActivity;
+import com.streak.app.util.AppExecutors;
+import com.streak.app.util.AppExecutors;
 
 public class ReminderReceiver extends BroadcastReceiver {
     public static final String CHANNEL_ID = "habit_reminder_channel";
@@ -46,7 +48,8 @@ public class ReminderReceiver extends BroadcastReceiver {
                              String fallbackTitle, String fallbackContent) {
         final Context appContext = context.getApplicationContext();
         final PendingResult pendingResult = goAsync();
-        new Thread(() -> {
+        // 走应用级 diskIO 池（单线程串行），取代零散 new Thread()——见 AppExecutors。
+        AppExecutors.getInstance().diskIO().execute(() -> {
             try {
                 HabitItem habit = null;
                 if (habitId > 0) {
@@ -93,7 +96,7 @@ public class ReminderReceiver extends BroadcastReceiver {
             } finally {
                 pendingResult.finish();
             }
-        }).start();
+        });
     }
 
     /**
