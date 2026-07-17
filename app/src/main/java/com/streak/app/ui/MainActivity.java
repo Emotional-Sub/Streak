@@ -522,6 +522,9 @@ public class MainActivity extends AppCompatActivity implements HabitAdapter.Call
             boolean ok = repository.validateLogin(username, password);
             if (ok) {
                 repository.saveLoginState(username, password, remember, username);
+                // 归属修复：把无主/孤儿习惯（owner 为空或账号已不存在）认领给当前登录账号，
+                // 避免旧数据被永久固定 student、或删号残留数据永远失联。放后台线程（DB 写）。
+                repository.claimOrphanHabits(username);
                 // 登录后重排本账号提醒：退出/切换账号时闹钟已被取消，未登录重启也不会排，
                 // 登录是恢复本账号提醒的统一时机。放在后台线程（读习惯 + 调度 IO）。
                 repository.rescheduleAllReminders();
