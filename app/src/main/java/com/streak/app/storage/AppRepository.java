@@ -143,9 +143,14 @@ public class AppRepository {
             boolean hadLegacyAccounts = accountsFile.exists();
             boolean hadLegacyHabits = habitsFile.exists();
 
+            // 关键顺序：先把两个旧文件都解析完（任一解析失败即抛异常早退，不做任何写入/归档），
+            // 再统一迁移 + 归档。否则「账号已迁并归档、习惯解析炸了早退」会留下部分归档的中间态。
+            // 解析成功才代表这两个文件确实可读，此后归档才安全。
+            List<UserAccount> legacyAccounts = hadLegacyAccounts ? readLegacyAccountsFromJson() : null;
+            List<HabitItem> legacyHabits = hadLegacyHabits ? readLegacyHabitsFromJson() : null;
+
             // 账号：老用户迁移旧文件；全新安装补默认账号。均以空表为前提防重复。
             if (hadLegacyAccounts) {
-                List<UserAccount> legacyAccounts = readLegacyAccountsFromJson();
                 if (userDao.count() == 0 && !legacyAccounts.isEmpty()) {
                     userDao.upsertAll(legacyAccounts);
                 }
@@ -156,7 +161,6 @@ public class AppRepository {
 
             // 习惯：老用户迁移旧文件（空列表也尊重，不补种子）；全新安装补种子。
             if (hadLegacyHabits) {
-                List<HabitItem> legacyHabits = readLegacyHabitsFromJson();
                 // 旧 JSON 时代习惯是全局共享、无归属的，统一归给演示账号 student，
                 // 与 Room v1->v2 迁移及种子习惯的归属保持一致。
                 for (HabitItem habit : legacyHabits) {
@@ -176,33 +180,38 @@ public class AppRepository {
                 habitDao.upsertAll(seedHabits());
             }
         } catch (Exception ignored) {
-            // 初始化失败不阻断启动；标记不置位，下次重试（count 守卫保证不会重复）。
+            // 初始化失败（含旧文件解析失败）不阻断启动；标记不置位、旧文件不归档，
+            // 下次启动重试（count 守卫保证已迁部分不会重复）。
             return;
         }
         preferences.edit().putBoolean(KEY_STORAGE_INITIALIZED, true).apply();
     }
 
-    /** 读旧 habits.json（迁移专用），解析失败返回空列表，绝不覆盖。 */
-    private List<HabitItem> readLegacyHabitsFromJson() {
+    /**
+     * 读旧 habits.json（迁移专用）。<b>解析失败时抛异常向外传播</b>，绝不吞成空列表——
+     * 否则调用方无法区分「文件真的是空」与「解析炸了」，会照样归档原文件并置初始化完成，
+     * 导致损坏/瞬时读失败被当成「用户删光了」，数据看似永久消失（实则还在 .migrated 里但不再重试）。
+     * 真正的空文件（gson 返回 null，不抛异常）仍按空列表正常处理。
+     */
+    private List<HabitItem> readLegacyHabitsFromJson() throws Exception {
         try (InputStreamReader reader = new InputStreamReader(
                 new FileInputStream(habitsFile), StandardCharsets.UTF_8)) {
             Type type = new TypeToken<List<HabitItem>>() {}.getType();
             List<HabitItem> habits = gson.fromJson(reader, type);
             return habits == null ? new ArrayList<>() : habits;
-        } catch (Exception e) {
-            return new ArrayList<>();
         }
     }
 
-    /** 读旧 accounts.json（迁移专用），解析失败返回空列表。 */
-    private List<UserAccount> readLegacyAccountsFromJson() {
+    /**
+     * 读旧 accounts.json（迁移专用）。解析失败抛异常向外传播（同 {@link #readLegacyHabitsFromJson}
+     * 的理由：避免把解析失败误当成空账号表而归档丢数据）。真正的空文件仍按空列表处理。
+     */
+    private List<UserAccount> readLegacyAccountsFromJson() throws Exception {
         try (InputStreamReader reader = new InputStreamReader(
                 new FileInputStream(accountsFile), StandardCharsets.UTF_8)) {
             Type type = new TypeToken<List<UserAccount>>() {}.getType();
             List<UserAccount> accounts = gson.fromJson(reader, type);
             return accounts == null ? new ArrayList<>() : accounts;
-        } catch (Exception e) {
-            return new ArrayList<>();
         }
     }
 
