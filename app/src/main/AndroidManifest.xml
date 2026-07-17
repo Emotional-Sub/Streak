@@ -98,6 +98,11 @@
             android:theme="@style/Theme.Streak" />
 
         <activity
+            android:name=".ui.dashboard.DashboardActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Streak" />
+
+        <activity
             android:name=".ui.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Streak">
