@@ -60,15 +60,22 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // 签名策略：凭据齐全（keystore.properties / 环境变量）时用正式 release 签名；
-            // 否则回退到 Android 默认的 debug 签名，保证 assembleRelease 始终产出「可直接安装」
-            // 的 APK（答辩演示、内部试用够用），而不是无法安装的未签名包。
-            // 正式对外发布前请补齐 release 凭据，切换回正式签名。
+            // 签名策略（严格）：仅在凭据齐全（keystore.properties / 环境变量）时启用正式 release 签名；
+            // 缺凭据时不设 signingConfig——assembleRelease 产出未签名包（无法直接安装），
+            // 以此强制正式对外发布必须补齐 release 凭据，绝不静默用 debug 签名冒充正式包。
+            // 需要「可直接安装」的演示包请构建 demo 类型（见下），而不是让 release 悄悄降级。
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
-            } else {
-                signingConfig signingConfigs.debug
             }
+        }
+        // demo：专供答辩演示/内部试用的「可直接安装」构建。继承 debug 的可调试与 debug 签名，
+        // 但用 applicationIdSuffix 让它与正式包（release/debug）在同一台设备上共存、互不覆盖。
+        // 这样既保留一个随时能直装的演示包，又不牺牲 release 的签名严格性。
+        demo {
+            initWith debug
+            applicationIdSuffix '.demo'
+            versionNameSuffix '-demo'
+            matchingFallbacks = ['debug']
         }
     }
 
