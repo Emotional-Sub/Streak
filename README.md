@@ -100,18 +100,21 @@
 
 ```
 app/src/main/java/com/streak/app/
-├── db/           Room 数据库（StreakDatabase、HabitDao、UserDao、Converters）
-├── model/        数据模型（HabitItem、UserAccount、Badge、HabitTemplate、HabitBackup 等）
+├── db/           Room 数据库（StreakDatabase、HabitDao、UserDao、CheckInRecordDao、Converters）
+├── model/        数据模型（HabitItem、CheckInRecord、UserAccount、Badge、HabitTemplate、HabitBackup、BackupEnvelope 等）
 ├── reminder/     提醒调度与广播接收（ReminderScheduler、BootReceiver、ReminderReceiver）
-├── storage/      数据仓库 AppRepository（账号、习惯、备份、图片的读写中枢）
-├── ui/           界面层（MainActivity、各 Activity、适配器、自绘视图）
-├── util/         工具类（PasswordHasher、HabitUtils、HabitAnalytics、BadgeUtils、HabitQrCodec、ShareCardGenerator、ImageLoader 等）
+├── data/         按职责拆分的数据层（AuthRepository、UserRepository、HabitRepository、CheckInRepository、BackupService、ImageStore、ReminderManager）
+├── storage/      数据仓库门面 AppRepository（保持既有公开 API，转发到 data/ 各仓库）
+├── ui/           界面层：登录页 MainActivity；仪表盘 DashboardActivity 承载四个 Fragment（Habits / Calendar / Stats / Profile）+ 共享 DashboardViewModel；各 Activity、适配器、自绘视图
+├── util/         工具类（AppExecutors、PasswordHasher、HabitUtils、HabitAnalytics、BadgeUtils、HabitQrCodec、ShareCardGenerator、ImageLoader 等）
 └── widget/       桌面小组件（StreakWidgetProvider）
 
-app/src/test/java/com/streak/app/       本地单元测试（存储层、分析、二维码编解码、工具类、TypeConverters）
+app/src/test/java/com/streak/app/       本地单元测试（存储层、迁移、备份、分析、二维码编解码、工具类、TypeConverters）
 ```
 
-数据存储采用 Room（SQLite）持久化习惯与账号两张表，`HabitItem` 的 `tags` / `completedDates`（List）与 `notes`（Map）经 `Converters` 序列化为 JSON 字符串存单列。数据库版本 2，`v1 -> v2` 迁移为习惯表新增 `ownerUsername` 列以支持多账号数据隔离。早期版本使用 Gson JSON 文件存储，其数据在首次启动时由 `AppRepository` 一次性搬运到 Room。
+数据存储采用 Room（SQLite）持久化三张表：习惯 `habits`、账号 `accounts`、打卡记录 `check_in_records`。打卡数据以 `check_in_records` 表为唯一真相源（`(habitId, date)` 唯一，每天一条，携带备注 / 心情 / 耗时 / 照片），与习惯是 `1:N` 关系并通过外键 `ON DELETE CASCADE` 级联；`HabitItem` 的 `completedDates` / `notes` 降级为读时聚合的内存派生视图（过渡兼容字段）。数据库当前版本 4：`v1 -> v2` 为习惯表新增 `ownerUsername` 支持多账号隔离，`v2 -> v3` 拆出独立打卡记录表，`v3 -> v4` 引入 `@Upsert` 与真正的外键级联。`schemas/` 保存历史 schema（`exportSchema=true`）。早期版本使用 Gson JSON 文件存储，其数据在首次启动时由 `AppRepository` 一次性搬运到 Room。
+
+代码架构上，1500+ 行的 `AppRepository` 已按职责拆分为 `data/` 包下的七个专职类，`AppRepository` 保留为薄门面（公开 API 不变、UI 零改动）转发调用；主界面由单 Activity 多视图重构为 `DashboardActivity` + 四个 Fragment，各页通过共享 `DashboardViewModel` 只监听自己关心的数据；线程统一收敛到应用级 `AppExecutors`（diskIO / computation / mainThread）。
 
 ## 构建与运行
 
