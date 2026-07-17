@@ -233,10 +233,13 @@ public class ProfileFragment extends Fragment {
                 .setMessage(R.string.dialog_delete_account_message)
                 .setNegativeButton(R.string.action_cancel, null)
                 .setPositiveButton(R.string.action_delete, (dialog, which) -> {
+                    // 先在主线程取 application context：后台任务可能在本页销毁后才跑完，
+                    // 那时再调 requireContext() 会抛 IllegalStateException。
+                    final android.content.Context appContext = requireContext().getApplicationContext();
                     // 删除涉及写库、取消提醒、删图片，放后台线程，完成后回主线程跳登录页
                     AppExecutors.getInstance().diskIO().execute(() -> {
                         repository.deleteCurrentAccountAndData();
-                        StreakWidgetRefresh();
+                        com.streak.app.widget.StreakWidgetProvider.refreshAll(appContext);
                         AppExecutors.getInstance().mainThread().execute(() -> {
                             if (!isAdded()) {
                                 return;
@@ -250,11 +253,6 @@ public class ProfileFragment extends Fragment {
                     });
                 })
                 .show();
-    }
-
-    /** 刷新桌面小组件（删号后清了本账号习惯，需同步小组件避免显示已删账号的旧进度）。 */
-    private void StreakWidgetRefresh() {
-        com.streak.app.widget.StreakWidgetProvider.refreshAll(requireContext().getApplicationContext());
     }
 
     private void showThemeModeChooser() {
