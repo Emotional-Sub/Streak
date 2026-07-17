@@ -260,7 +260,12 @@ public class BackupService {
             // 尽量救回还能读的 habits.json，避免一份可用备份因新信封损坏而整体导入失败。
             if (envelopeJson != null) {
                 BackupEnvelope envelope = parseEnvelope(envelopeJson);
-                if (envelope != null && envelope.getHabits() != null) {
+                // 校验 schemaVersion：版本号缺失/非法(<=0)或高于本 App 能理解的上限
+                // (CURRENT_SCHEMA_VERSION)，说明信封由更新版本产出、其结构可能不兼容——
+                // 不信任它，回退到向后兼容的散装文件(habits.json 等)。只在版本可理解时才采用信封数据。
+                if (envelope != null && envelope.getHabits() != null
+                        && envelope.getSchemaVersion() > 0
+                        && envelope.getSchemaVersion() <= BackupEnvelope.CURRENT_SCHEMA_VERSION) {
                     parsedHabits = envelope.getHabits();
                     parsedRecords = envelope.getCheckInRecords();
                     parsedAccounts = envelope.getAccounts();
@@ -281,6 +286,11 @@ public class BackupService {
             }
 
             final List<HabitItem> rawHabits = parsedHabits;
+            // 已解析出的记录/账号（信封优先，否则来自旧散装文件）——下面构建 finalRecords/
+            // finalAccounts 一律以这两个为源，不再重复解析散装 JSON，避免「只含 backup.json 的
+            // 备份走进旧文件分支而丢失心情/耗时/照片/账号」。
+            final List<CheckInRecord> sourceRecords = parsedRecords;
+            final List<UserAccount> sourceAccounts = parsedAccounts;
 
             // 校验通过，落地图片。记录「本次新建」的文件（原本不存在者），失败时据此回滚。
             for (Map.Entry<String, byte[]> img : images.entrySet()) {
@@ -328,19 +338,17 @@ public class BackupService {
             // 打卡记录：优先用全保真的 check_in_records.json；旧备份没有该文件时，
             // 回退到从 habits 的 completedDates/notes 重建（只含日期与备注，无心情/耗时/照片）。
             final List<CheckInRecord> finalRecords = new ArrayList<>();
-            if (recordsJson != null) {
-                Type recType = new TypeToken<List<CheckInRecord>>() {}.getType();
-                List<CheckInRecord> importedRecords = gson.fromJson(
-                        new String(recordsJson, StandardCharsets.UTF_8), recType);
-                if (importedRecords != null) {
-                    for (CheckInRecord record : importedRecords) {
-                        if (record == null || record.getDate() == null || record.getDate().isEmpty()) {
-                            continue;
-                        }
-                        record.setPhotoUri(remapImageUri(record.getPhotoUri()));
-                        record.setId(0);
-                        finalRecords.add(record);
+            if (sourceRecords != null) {
+                // 已解析的全保真记录（来自信封 backup.json 的 checkInRecords，或旧结构
+                // check_in_records.json）。此前这里错误地重新只读散装 recordsJson——
+                // 只含 backup.json 的备份因此丢失心情/耗时/照片。现直接用解析结果。
+                for (CheckInRecord record : sourceRecords) {
+                    if (record == null || record.getDate() == null || record.getDate().isEmpty()) {
+                        continue;
                     }
+                    record.setPhotoUri(remapImageUri(record.getPhotoUri()));
+                    record.setId(0);
+                    finalRecords.add(record);
                 }
             } else {
                 for (HabitItem habit : habits) {
@@ -364,50 +372,45 @@ public class BackupService {
             }
 
             final List<UserAccount> finalAccounts;
-            if (accountsJson != null) {
-                Type type = new TypeToken<List<UserAccount>>() {}.getType();
-                List<UserAccount> imported = gson.fromJson(
-                        new String(accountsJson, StandardCharsets.UTF_8), type);
-                if (imported != null) {
-                    List<UserAccount> current = userRepository.loadAccounts();
-                    for (UserAccount importedAccount : imported) {
-                        if (importedAccount == null || importedAccount.getUsername() == null) {
-                            continue;
-                        }
-                        UserAccount match = null;
-                        for (UserAccount existing : current) {
-                            if (importedAccount.getUsername().equals(existing.getUsername())) {
-                                match = existing;
-                                break;
-                            }
-                        }
-                        if (match != null) {
-                            // 安全：已存在的账号只更新展示资料，绝不覆盖其凭据(passwordHash/salt)。
-                            // 否则任何人都能用一份构造的备份替换本机已有账号的密码哈希，
-                            // 造成账号接管/密码被顶掉。凭据仅在「重建缺失账号」分支写入。
-                            match.setDisplayName(importedAccount.getDisplayName());
-                            match.setMotto(importedAccount.getMotto());
-                            // 备份缺图时 remap 返回 null，此时保留现有头像而非清空
-                            String remappedAvatar = remapImageUri(importedAccount.getAvatarUri());
-                            if (remappedAvatar != null) {
-                                match.setAvatarUri(remappedAvatar);
-                            }
-                        } else {
-                            // 重建已删除账号
-                            UserAccount restored = new UserAccount();
-                            restored.setUsername(importedAccount.getUsername());
-                            restored.setDisplayName(importedAccount.getDisplayName());
-                            restored.setMotto(importedAccount.getMotto());
-                            restored.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
-                            restored.setPasswordHash(importedAccount.getPasswordHash());
-                            restored.setSalt(importedAccount.getSalt());
-                            current.add(restored);
+            if (sourceAccounts != null) {
+                // 已解析的账号列表（信封 backup.json 的 accounts，或旧结构 accounts.json）。
+                // 同前：此前错误地重新只读散装 accountsJson，只含 backup.json 的备份丢账号。
+                List<UserAccount> current = userRepository.loadAccounts();
+                for (UserAccount importedAccount : sourceAccounts) {
+                    if (importedAccount == null || importedAccount.getUsername() == null) {
+                        continue;
+                    }
+                    UserAccount match = null;
+                    for (UserAccount existing : current) {
+                        if (importedAccount.getUsername().equals(existing.getUsername())) {
+                            match = existing;
+                            break;
                         }
                     }
-                    finalAccounts = current;
-                } else {
-                    finalAccounts = null;
+                    if (match != null) {
+                        // 安全：已存在的账号只更新展示资料，绝不覆盖其凭据(passwordHash/salt)。
+                        // 否则任何人都能用一份构造的备份替换本机已有账号的密码哈希，
+                        // 造成账号接管/密码被顶掉。凭据仅在「重建缺失账号」分支写入。
+                        match.setDisplayName(importedAccount.getDisplayName());
+                        match.setMotto(importedAccount.getMotto());
+                        // 备份缺图时 remap 返回 null，此时保留现有头像而非清空
+                        String remappedAvatar = remapImageUri(importedAccount.getAvatarUri());
+                        if (remappedAvatar != null) {
+                            match.setAvatarUri(remappedAvatar);
+                        }
+                    } else {
+                        // 重建已删除账号
+                        UserAccount restored = new UserAccount();
+                        restored.setUsername(importedAccount.getUsername());
+                        restored.setDisplayName(importedAccount.getDisplayName());
+                        restored.setMotto(importedAccount.getMotto());
+                        restored.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
+                        restored.setPasswordHash(importedAccount.getPasswordHash());
+                        restored.setSalt(importedAccount.getSalt());
+                        current.add(restored);
+                    }
                 }
+                finalAccounts = current;
             } else {
                 finalAccounts = null;
             }
