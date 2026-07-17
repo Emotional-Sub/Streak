@@ -459,6 +459,22 @@ public class AppRepository {
     }
 
     /**
+     * 归属修复：把「孤儿习惯」认领给当前登录账号。孤儿 = ownerUsername 为空，或其归属账号
+     * 已不在账号表里（删号残留 / 旧数据）。登录成功后调用，避免旧数据被永久固定给 student、
+     * 或某账号删除后其习惯永远失联。归属账号仍存在的习惯（含其它账号数据）绝不认领。
+     * 返回本次认领的习惯数量。
+     */
+    public int claimOrphanHabits(String claimant) {
+        java.util.Set<String> validOwners = new java.util.HashSet<>();
+        for (UserAccount account : loadAccounts()) {
+            if (account.getUsername() != null && !account.getUsername().isEmpty()) {
+                validOwners.add(account.getUsername());
+            }
+        }
+        return habitRepository.claimOrphanHabits(claimant, validOwners);
+    }
+
+    /**
      * 把某习惯内存派生字段（completedDates/notes）的状态同步进 check_in_records 表：
      * 新增缺失日期的记录、删除已不在 completedDates 里的记录、更新备注。
      *
