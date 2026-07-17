@@ -12,6 +12,7 @@ import com.streak.app.R;
 import com.streak.app.model.HabitItem;
 import com.streak.app.storage.AppRepository;
 import com.streak.app.ui.MainActivity;
+import com.streak.app.util.AppExecutors;
 import com.streak.app.util.HabitUtils;
 
 import java.util.List;
@@ -40,7 +41,8 @@ public class StreakWidgetProvider extends AppWidgetProvider {
 
     private void renderAsync(Context context, AppWidgetManager manager, int widgetId) {
         final Context appContext = context.getApplicationContext();
-        new Thread(() -> {
+        // 走应用级 diskIO 池（单线程串行），取代零散 new Thread()——见 AppExecutors。
+        AppExecutors.getInstance().diskIO().execute(() -> {
             int total = 0;
             int done = 0;
             try {
@@ -72,6 +74,6 @@ public class StreakWidgetProvider extends AppWidgetProvider {
             views.setOnClickPendingIntent(R.id.tvWidgetAction, pendingIntent);
 
             manager.updateAppWidget(widgetId, views);
-        }).start();
+        });
     }
 }
