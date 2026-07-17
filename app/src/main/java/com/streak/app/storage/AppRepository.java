@@ -413,8 +413,12 @@ public class AppRepository {
         return habitRepository.findHabitById(habitId);
     }
 
-    /** 取某习惯某天的打卡记录（含心情/耗时/照片），无则 null。供新打卡 UI/详情页读富字段。 */
+    /** 取某习惯某天的打卡记录（含心情/耗时/照片），无则 null。供新打卡 UI/详情页读富字段。
+     *  账号隔离：习惯不属当前账号时返回 null，不泄漏他人打卡数据。 */
     public CheckInRecord getCheckIn(long habitId, String date) {
+        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
+            return null;
+        }
         return checkInRepository.getCheckIn(habitId, date);
     }
 
@@ -423,6 +427,9 @@ public class AppRepository {
      * （心情/耗时/照片），不经 completedDates/notes 过渡视图。
      */
     public List<CheckInRecord> getCheckIns(long habitId) {
+        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
+            return new ArrayList<>();
+        }
         return checkInRepository.getCheckIns(habitId);
     }
 
@@ -437,6 +444,9 @@ public class AppRepository {
      */
     public void upsertCheckIn(long habitId, String date, int mood,
                              int durationMinutes, String note, String photoUri) {
+        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
+            return; // 非本账号习惯：拒绝写入（数据隔离防御）
+        }
         checkInRepository.upsertCheckIn(habitId, date, mood, durationMinutes, note, photoUri);
     }
 
@@ -445,6 +455,9 @@ public class AppRepository {
      * 直写真相源，不经派生字段。
      */
     public void removeCheckIn(long habitId, String date) {
+        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
+            return; // 非本账号习惯：拒绝撤销（数据隔离防御）
+        }
         checkInRepository.removeCheckIn(habitId, date);
     }
 
