@@ -279,6 +279,10 @@ public class CalendarFragment extends Fragment {
 
     /** 过去某天补卡/撤销：直写记录表（按 id，不整表覆盖），再让共享数据刷新全体页面。 */
     private void toggleDateCheckIn(long habitId, String date, boolean add) {
+        // 先在主线程取 application context：后台任务可能在本页销毁后才跑完，
+        // 那时再调 requireContext() 会抛 IllegalStateException。application context
+        // 与 Fragment 生命周期无关，可安全跨销毁使用。
+        final android.content.Context appContext = requireContext().getApplicationContext();
         com.streak.app.util.AppExecutors.getInstance().diskIO().execute(() -> {
             if (add) {
                 com.streak.app.model.CheckInRecord existing =
@@ -291,7 +295,7 @@ public class CalendarFragment extends Fragment {
             } else {
                 viewModel.repository().removeCheckIn(habitId, date);
             }
-            com.streak.app.widget.StreakWidgetProvider.refreshAll(requireContext().getApplicationContext());
+            com.streak.app.widget.StreakWidgetProvider.refreshAll(appContext);
             viewModel.reload();
         });
     }

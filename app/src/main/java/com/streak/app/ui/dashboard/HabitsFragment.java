@@ -87,6 +87,10 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
     private String checkInDate;
     private int checkInMood;
     private String checkInPhotoUri;
+    // 打开弹层时若当天已有打卡记录，记下其 DB 里的原照片路径。用于区分「本次新拍的临时照片」
+    // 与「DB 仍引用的原照片」：取消/换图时只删临时图，绝不误删 DB 原照片（原照片的替换删除
+    // 交由保存路径的 upsertCheckIn 处理）。null 表示当天无原照片。
+    private String checkInOriginalPhotoUri;
     private boolean checkInSaved;
     private String pendingCheckInCameraPath;
 
@@ -381,11 +385,14 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
                 .setPositiveButton(R.string.action_delete, (dialog, which) -> {
                     final long habitId = item.getId();
                     final String imageUri = item.getImageUri();
+                    // 进后台前捕获 application context：后台任务里不能再调 requireContext()，
+                    // 页面若在删除期间被销毁/旋转会抛 IllegalStateException。
+                    final android.content.Context appContext = requireContext().getApplicationContext();
                     diskIO.execute(() -> {
                         viewModel.repository().deleteHabitById(habitId);
                         viewModel.repository().cancelReminder(habitId);
                         viewModel.repository().deletePhoto(imageUri);
-                        StreakWidgetProvider.refreshAll(requireContext().getApplicationContext());
+                        StreakWidgetProvider.refreshAll(appContext);
                         mainThread.execute(() -> {
                             if (isAdded()) {
                                 viewModel.reload();
@@ -412,6 +419,8 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         checkInDate = date;
         checkInMood = 0;
         checkInPhotoUri = null;
+        // 本次弹层开始时尚不知 DB 原照片，预填拿到记录后再赋值。
+        checkInOriginalPhotoUri = null;
 
         sheetBinding.tvCheckInTitle.setText(getString(R.string.dialog_checkin_title, item.getTitle()));
 
@@ -432,6 +441,10 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
                         sheetBinding.etCheckInNote.setText(existing.getNote());
                     }
                     if (existing.getPhotoUri() != null) {
+                        // 记下 DB 里已落库的原照片：弹层期间绝不删它（取消/换图都不删），
+                        // 它的删除只由保存时的 upsertCheckIn 在真正替换后负责，避免取消后
+                        // DB 仍引用一个已被删掉的文件。
+                        checkInOriginalPhotoUri = existing.getPhotoUri();
                         updateCheckInPhoto(existing.getPhotoUri());
                     }
                 });
@@ -458,11 +471,15 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         dialog.setContentView(sheetBinding.getRoot());
         dialog.setOnDismissListener(d -> {
             if (activeCheckInBinding == sheetBinding) {
-                if (!checkInSaved && checkInPhotoUri != null) {
+                // 取消/未保存关闭：只删本次新拍/新选的临时图，绝不删 DB 已落库的原照片
+                //（原照片仍被 DB 引用，删了会留下悬空引用）。
+                if (!checkInSaved && checkInPhotoUri != null
+                        && !checkInPhotoUri.equals(checkInOriginalPhotoUri)) {
                     viewModel.repository().deletePhoto(checkInPhotoUri);
                 }
                 activeCheckInBinding = null;
                 checkInPhotoUri = null;
+                checkInOriginalPhotoUri = null;
                 checkInSaved = false;
             }
         });
@@ -516,9 +533,16 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         checkInCameraLauncher.launch(info.getUri());
     }
 
-    /** 更新弹层里的打卡照片预览；替换旧的未落库照片时删除它。 */
+    /**
+     * 更新弹层里的打卡照片预览；替换旧的<b>临时</b>照片时删除它。
+     *
+     * <p>关键：被替换的旧值若等于 DB 原照片（{@code checkInOriginalPhotoUri}），绝不删——
+     * 它仍被数据库引用，弹层期间只是预览，删了会造成 DB 悬空引用。原照片的删除只在保存时
+     * 由 {@code upsertCheckIn} 真正替换后负责。只有「本次新拍/新选、尚未落库」的临时图才即删。</p>
+     */
     private void updateCheckInPhoto(String imageUri) {
-        if (checkInPhotoUri != null && !checkInPhotoUri.equals(imageUri)) {
+        if (checkInPhotoUri != null && !checkInPhotoUri.equals(imageUri)
+                && !checkInPhotoUri.equals(checkInOriginalPhotoUri)) {
             viewModel.repository().deletePhoto(checkInPhotoUri);
         }
         checkInPhotoUri = imageUri;
@@ -530,10 +554,12 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
     }
 
     private void removeCheckInPhoto() {
-        if (checkInPhotoUri != null) {
+        // 只删本次新拍/新选的临时图；DB 原照片不在此删（用户点「移除」后若保存，
+        // upsertCheckIn 会以 photoUri=null 落库并删原文件；若取消则原照片应保持）。
+        if (checkInPhotoUri != null && !checkInPhotoUri.equals(checkInOriginalPhotoUri)) {
             viewModel.repository().deletePhoto(checkInPhotoUri);
-            checkInPhotoUri = null;
         }
+        checkInPhotoUri = null;
         if (activeCheckInBinding != null) {
             activeCheckInBinding.ivCheckInPhoto.setImageDrawable(null);
             activeCheckInBinding.ivCheckInPhoto.setVisibility(View.GONE);
@@ -543,9 +569,12 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
 
     private void writeCheckIn(long habitId, String date, int mood,
                              int durationMinutes, String note, String photoUri) {
+        // 先在主线程取应用级 Context：后台任务里再调 requireContext() 若页面已销毁会抛
+        // IllegalStateException。appContext 生命周期与进程一致，可安全跨线程持有。
+        final android.content.Context appContext = requireContext().getApplicationContext();
         diskIO.execute(() -> {
             viewModel.repository().upsertCheckIn(habitId, date, mood, durationMinutes, note, photoUri);
-            StreakWidgetProvider.refreshAll(requireContext().getApplicationContext());
+            StreakWidgetProvider.refreshAll(appContext);
             mainThread.execute(() -> {
                 if (isAdded()) {
                     viewModel.reload();
@@ -556,9 +585,10 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
 
     private void undoTodayCheckIn(long habitId) {
         final String todayDate = HabitUtils.today();
+        final android.content.Context appContext = requireContext().getApplicationContext();
         diskIO.execute(() -> {
             viewModel.repository().removeCheckIn(habitId, todayDate);
-            StreakWidgetProvider.refreshAll(requireContext().getApplicationContext());
+            StreakWidgetProvider.refreshAll(appContext);
             mainThread.execute(() -> {
                 if (isAdded()) {
                     viewModel.reload();
