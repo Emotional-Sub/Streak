@@ -244,7 +244,7 @@ public class ProfileFragment extends Fragment {
                             android.widget.Toast.makeText(requireContext(),
                                     R.string.toast_account_deleted, android.widget.Toast.LENGTH_SHORT).show();
                             if (getActivity() instanceof DashboardHost) {
-                                ((DashboardHost) getActivity()).onLoggedOut();
+                                ((DashboardHost) getActivity()).onAccountDeleted();
                             }
                         });
                     });
