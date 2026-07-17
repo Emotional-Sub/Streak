@@ -15,6 +15,8 @@ import com.streak.app.databinding.ActivityBadgeWallBinding;
 import com.streak.app.databinding.ItemBadgeBinding;
 import com.streak.app.model.Badge;
 import com.streak.app.storage.AppRepository;
+import com.streak.app.util.AppExecutors;
+import com.streak.app.util.AppExecutors;
 import com.streak.app.util.BadgeUtils;
 
 import java.util.List;
@@ -36,7 +38,8 @@ public class BadgeWallActivity extends AppCompatActivity {
 
         // 读习惯涉及读盘，放后台线程算勋章，回主线程渲染，避免在 onCreate 阻塞 UI（大数据量会卡/ANR）
         AppRepository repository = new AppRepository(this);
-        new Thread(() -> {
+        // 读习惯走应用级 diskIO 池（单线程串行），回主线程渲染前用生命周期守卫拦截已销毁的界面。
+        AppExecutors.getInstance().diskIO().execute(() -> {
             final List<Badge> badges = BadgeUtils.evaluate(repository.readHabits());
             final int unlocked = BadgeUtils.unlockedCount(badges);
             runOnUiThread(() -> {
@@ -47,7 +50,7 @@ public class BadgeWallActivity extends AppCompatActivity {
                         getString(R.string.badge_wall_summary, unlocked, badges.size()));
                 renderGrid(badges);
             });
-        }).start();
+        });
     }
 
     private void renderGrid(List<Badge> badges) {
