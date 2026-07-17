@@ -21,6 +21,7 @@ import com.streak.app.R;
 import com.streak.app.databinding.ActivityDashboardBinding;
 import com.streak.app.ui.MainActivity;
 import com.streak.app.util.AppExecutors;
+import com.streak.app.util.HabitUtils;
 import com.streak.app.widget.StreakWidgetProvider;
 
 import java.io.File;
@@ -60,6 +61,11 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
     private ActivityResultLauncher<String[]> importLauncher;
     private File pendingExportFile;
 
+    // 当前选中的底部导航项 id：旋转重建时据此复原到旋转前那一页（而非无条件回习惯页）。
+    private int selectedNavId = R.id.nav_habits;
+    // 最近一次可见时的日期（yyyy-MM-dd）：onResume 比对，跨午夜回前台时刷新「今日」状态。
+    private String lastResumeDate;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -69,6 +75,8 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
             if (path != null) {
                 pendingExportFile = new File(path);
             }
+            // 先恢复选中页，setupFragments/setupToolbarAndNav 才能据此复原到旋转前那一页。
+            selectedNavId = savedInstanceState.getInt("selected_nav_id", R.id.nav_habits);
         }
         binding = ActivityDashboardBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -98,6 +106,8 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
         setupFragments(savedInstanceState);
         setupToolbarAndNav();
 
+        lastResumeDate = com.streak.app.util.HabitUtils.today();
+
         // 首次进入加载数据；旋转重建时 ViewModel 已存活，无需重复加载（但 reload 幂等，代价小）。
         viewModel.reload();
     }
@@ -105,7 +115,15 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
     @Override
     protected void onResume() {
         super.onResume();
-        // 跨午夜回前台：让当前可见页按需自刷新（各 Fragment 在 onPageShown 里处理 today 变更）。
+        // 跨午夜回前台：日期已翻篇，重载习惯让各页（含「今日完成数」「今日按钮状态」）随
+        // LiveData 按新的 today 重算，而不只是换激励语（后者不刷新今日口径的数据）。
+        String today = com.streak.app.util.HabitUtils.today();
+        if (lastResumeDate != null && !lastResumeDate.equals(today)) {
+            lastResumeDate = today;
+            viewModel.reload();
+            StreakWidgetProvider.refreshAll(getApplicationContext());
+        }
+        // 让当前可见页刷新激励语等页内轻状态（与旧行为一致）。
         if (activeFragment instanceof HabitsFragment) {
             ((HabitsFragment) activeFragment).onPageShown();
         }
@@ -117,6 +135,7 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
         if (pendingExportFile != null) {
             outState.putString("pending_export_file", pendingExportFile.getAbsolutePath());
         }
+        outState.putInt("selected_nav_id", selectedNavId);
     }
 
     private void setupFragments(Bundle savedInstanceState) {
@@ -141,29 +160,47 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
                     .commit();
             activeFragment = habitsFragment;
         } else {
-            // 重建后当前显示的那个是未被 hide 的；默认回到习惯页。
-            activeFragment = habitsFragment;
+            // 重建：复原到旋转前选中的那一页，而非无条件回习惯页。
+            Fragment restored = fragmentForNav(selectedNavId);
+            activeFragment = restored;
             fm.beginTransaction()
-                    .hide(calendarFragment).hide(statsFragment).hide(profileFragment)
-                    .show(habitsFragment)
+                    .hide(habitsFragment).hide(calendarFragment).hide(statsFragment).hide(profileFragment)
+                    .show(restored)
                     .commit();
         }
     }
 
+    /** 底部导航 id -> 对应 Fragment。 */
+    private Fragment fragmentForNav(int navId) {
+        if (navId == R.id.nav_calendar) {
+            return calendarFragment;
+        }
+        if (navId == R.id.nav_stats) {
+            return statsFragment;
+        }
+        if (navId == R.id.nav_profile) {
+            return profileFragment;
+        }
+        return habitsFragment;
+    }
+
     private void setupToolbarAndNav() {
-        binding.toolbarDashboard.setTitle(getString(R.string.title_habits));
         binding.toolbarDashboard.inflateMenu(R.menu.menu_dashboard);
         binding.toolbarDashboard.setOnMenuItemClickListener(this::onToolbarMenuClicked);
 
-        binding.bottomNavigation.setOnItemSelectedListener(this::onBottomNavigationSelected);
-        binding.bottomNavigation.setSelectedItemId(R.id.nav_habits);
-
         binding.fabAddHabit.setOnClickListener(v -> habitsFragment.showTemplateChooser());
         binding.fabScanHabit.setOnClickListener(v -> habitsFragment.launchCameraScan());
+
+        // 先绑监听器，再设选中项：setSelectedItemId 触发 onBottomNavigationSelected 统一
+        // 同步标题/FAB 可见性/切页副作用，避免在此重复一遍。旋转重建时用 selectedNavId 复原。
+        binding.bottomNavigation.setOnItemSelectedListener(this::onBottomNavigationSelected);
+        binding.bottomNavigation.setSelectedItemId(selectedNavId);
     }
 
     private boolean onBottomNavigationSelected(@NonNull android.view.MenuItem item) {
         int id = item.getItemId();
+        // 记住当前选中页，供旋转重建时复原（见 setupFragments / onSaveInstanceState）。
+        selectedNavId = id;
         binding.toolbarDashboard.setTitle(item.getTitle());
 
         Fragment target;
@@ -330,12 +367,15 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
 
     @Override
     public void onLoggedOut() {
-        // 退出：取消本账号提醒 + 清登录态（后台 IO），随即刷新组件，再回登录页。
+        // 退出：取消本账号提醒 + 清登录态（后台 IO），刷新组件后再回登录页。
+        // 必须等 logout() 落定再跳转——否则登录页可能在旧 current_user 尚未清空时读到它，
+        // 直接又跳回 Dashboard，形成「退不出去」的导航竞态。故把 goToLogin 排在后台任务
+        // 完成后经 postToUi 主线程执行（带 isFinishing/isDestroyed 守卫）。
         backgroundExecutor.execute(() -> {
             viewModel.repository().logout();
             StreakWidgetProvider.refreshAll(getApplicationContext());
+            postToUi(this::goToLogin);
         });
-        goToLogin();
     }
 
     private void goToLogin() {
