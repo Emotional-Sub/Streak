@@ -497,18 +497,6 @@ public class AppRepository {
     }
 
     /**
-     * 把某习惯内存派生字段（completedDates/notes）的状态同步进 check_in_records 表：
-     * 新增缺失日期的记录、删除已不在 completedDates 里的记录、更新备注。
-     *
-     * <p>关键：对仍保留的日期，<b>保留其已有的 mood/duration/photo</b>——既有打卡 UI 只改
-     * 日期与备注，若这里整表重建会把心情/耗时/照片抹掉。故按日期 diff 增量同步，
-     * 而非 clear + 重插。记录表是真相源，本方法是「旧视图字段 -> 真相源」的回写桥。</p>
-     */
-    private void syncCheckInsFrom(HabitItem habit) {
-        checkInRepository.syncFrom(habit);
-    }
-
-    /**
      * 按 id 删除单个习惯，并限定归属为当前账号。同样只动一行，不整表覆盖，避免并发丢更新。
      * 带 owner 过滤是数据隔离的防御措施：即便传入其它账号的 id 也删不到，不会跨账号误删。
      */
