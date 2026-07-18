@@ -22,6 +22,7 @@ import com.streak.app.model.CameraCaptureInfo;
 import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitBackup;
 import com.streak.app.model.HabitItem;
+import com.streak.app.model.HabitWithCheckIns;
 import com.streak.app.model.UserAccount;
 import com.streak.app.data.ImageStore;
 import com.streak.app.data.ReminderManager;
@@ -378,6 +379,15 @@ public class AppRepository {
 
         public List<HabitItem> readHabits() {
         return habitRepository.readHabits();
+    }
+
+    /**
+     * 读当前登录账号的全部习惯，每条打包成 {@link HabitWithCheckIns} 只读组合视图返回
+     * （原始打卡记录保真含 mood/duration/photo）。新的统计/分析/UI 消费端应优先用本方法，
+     * 逐步替换对 {@link HabitItem} 派生字段 completedDates/notes 的依赖。
+     */
+    public List<HabitWithCheckIns> readHabitsWithCheckIns() {
+        return habitRepository.readHabitsWithCheckIns();
     }
 
     /**
