@@ -6,6 +6,7 @@ import com.streak.app.db.HabitDao;
 import com.streak.app.db.StreakDatabase;
 import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitItem;
+import com.streak.app.model.HabitWithCheckIns;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -71,6 +72,35 @@ public class HabitRepository {
             checkInRepository.aggregateInto(habit, byHabit.get(habit.getId()));
         }
         return habits;
+    }
+
+    /**
+     * 读当前登录账号的全部习惯，每条打包成 {@link HabitWithCheckIns} 只读组合视图返回。
+     *
+     * <p>与 {@link #readHabits} 共用同一套批量查询（一次 {@code recordsGroupedByHabit} 消除 N+1），
+     * 区别在于不把记录回填进 {@code HabitItem} 的派生字段，而是连同原始 {@link CheckInRecord} 列表
+     * （保真含 mood/duration/photo）打包，交给统计/分析/UI 消费端。这是 completedDates/notes 只读
+     * 投影的替代读取入口：新消费端应优先用本方法，逐步替换对 {@code HabitItem} 派生字段的依赖。</p>
+     */
+    public List<HabitWithCheckIns> readHabitsWithCheckIns() {
+        String owner = currentUser();
+        if (owner.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<HabitItem> habits = habitDao.getByOwner(owner);
+        if (habits == null) {
+            return new ArrayList<>();
+        }
+        List<Long> ids = new ArrayList<>(habits.size());
+        for (HabitItem habit : habits) {
+            ids.add(habit.getId());
+        }
+        Map<Long, List<CheckInRecord>> byHabit = checkInRepository.recordsGroupedByHabit(ids);
+        List<HabitWithCheckIns> result = new ArrayList<>(habits.size());
+        for (HabitItem habit : habits) {
+            result.add(new HabitWithCheckIns(habit, byHabit.get(habit.getId())));
+        }
+        return result;
     }
 
     /**
