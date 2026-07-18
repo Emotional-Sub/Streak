@@ -170,12 +170,10 @@ public class HabitRepository {
         } else if (!owner.equals(habitOwner)) {
             return; // 归属他账号：拒绝保存（数据隔离防御）
         }
-        // 习惯行 upsert 与其打卡记录同步绑成一个事务：既有打卡 UI 走「读改写整条习惯」，
-        // 这里据此把记录表同步到与派生字段一致，让旧写入路径零改动即落到规范化表。
-        database.runInTransaction(() -> {
-            habitDao.upsert(habit);
-            checkInRepository.syncFrom(habit);
-        });
+        // 只 upsert 习惯行本身。打卡记录不在此同步：编辑习惯只改标题/分类/提醒等元信息，
+        // 不碰打卡；打卡的增删改由直写 API（upsertCheckIn/removeCheckIn）独占落到 check_in_records
+        // 表。completedDates/notes 已是「读时聚合」的只读投影，不再作为写入路径回写。
+        habitDao.upsert(habit);
     }
 
     /**
