@@ -26,8 +26,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -212,7 +212,8 @@ public class BackupService {
             byte[] habitsJson = null;
             byte[] accountsJson = null;
             byte[] recordsJson = null;
-            Map<String, byte[]> images = new HashMap<>();
+            // 保留 ZIP 条目顺序，便于失败时按确定顺序回滚，也避免同一备份每次覆盖顺序不同。
+            Map<String, byte[]> images = new LinkedHashMap<>();
 
             // 第一遍：全部读入内存，不写磁盘。累计条目数与解压字节，超上限即放弃（防 OOM）。
             long[] budget = {MAX_TOTAL_BYTES};
@@ -263,9 +264,14 @@ public class BackupService {
                 // 校验 schemaVersion：版本号缺失/非法(<=0)或高于本 App 能理解的上限
                 // (CURRENT_SCHEMA_VERSION)，说明信封由更新版本产出、其结构可能不兼容——
                 // 不信任它，回退到向后兼容的散装文件(habits.json 等)。只在版本可理解时才采用信封数据。
-                if (envelope != null && envelope.getHabits() != null
-                        && envelope.getSchemaVersion() > 0
-                        && envelope.getSchemaVersion() <= BackupEnvelope.CURRENT_SCHEMA_VERSION) {
+                // 目前只有 v4 有明确的转换实现。v4 信封的三个数据列表都是必需字段：
+                // 缺任何一个都不能把「部分信封」当成完整备份，否则会静默丢富字段或账号。
+                // 不支持的版本交给下面的散装文件兼容路径处理。
+                if (envelope != null
+                        && envelope.getSchemaVersion() == BackupEnvelope.CURRENT_SCHEMA_VERSION
+                        && envelope.getHabits() != null
+                        && envelope.getCheckInRecords() != null
+                        && envelope.getAccounts() != null) {
                     parsedHabits = envelope.getHabits();
                     parsedRecords = envelope.getCheckInRecords();
                     parsedAccounts = envelope.getAccounts();
@@ -281,9 +287,16 @@ public class BackupService {
                     return false;
                 }
                 parsedHabits = backup.getHabits();
+                // 散装文件严格解析：区分「缺失」与「存在但损坏」。
+                //   缺失(bytes==null) -> 返回 null，走兼容降级（记录从 completedDates 重建、账号保持不动）；
+                //   存在但 JSON 损坏/类型错误/结构非法 -> 抛异常，由下方 catch 整体失败并回滚，
+                //   绝不把损坏文件静默当成「缺失」而丢弃其本应携带的打卡富字段/账号数据。
                 parsedRecords = parseRecordsJson(recordsJson);
                 parsedAccounts = parseAccountsJson(accountsJson);
             }
+
+            // 所有来源统一做语义校验，并且必须发生在图片落地/数据库事务之前。
+            validateImportedStructure(parsedHabits, parsedRecords, parsedAccounts);
 
             final List<HabitItem> rawHabits = parsedHabits;
             // 已解析出的记录/账号（信封优先，否则来自旧散装文件）——下面构建 finalRecords/
@@ -439,16 +452,28 @@ public class BackupService {
 
             // 导入成功：被覆盖的同名旧图已无需还原，删掉临时副本。
             for (File[] pair : overwrittenBackups) {
-                //noinspection ResultOfMethodCallIgnored
-                pair[1].delete();
+                try {
+                    //noinspection ResultOfMethodCallIgnored
+                    pair[1].delete();
+                } catch (Exception ignored) {
+                    // 临时副本清理失败不应把已提交的导入伪装成失败；最多留下可清理的孤立文件。
+                }
             }
 
             // 先取消导入前所有习惯的旧闹钟，再按导入后的数据重建，
             // 避免被删除习惯的 PendingIntent 残留触发。
             for (long oldId : preImportIds) {
-                reminderManager.cancel(oldId);
+                try {
+                    reminderManager.cancel(oldId);
+                } catch (Exception ignored) {
+                    // 提醒属于非关键副作用，不能破坏已提交的数据导入。
+                }
             }
-            rescheduleAll.run();
+            try {
+                rescheduleAll.run();
+            } catch (Exception ignored) {
+                // 同上：导入成功，提醒重排失败时后续启动/登录仍可再次重排。
+            }
             return true;
         } catch (Exception e) {
             // DB 已由事务回滚；再复原磁盘上的图片，使磁盘状态一并回到导入前，不留孤儿文件。
@@ -505,30 +530,115 @@ public class BackupService {
         }
     }
 
-    /** 解析旧结构 check_in_records.json。损坏或缺失返回 null（回退到 completedDates 重建）。 */
-    private List<CheckInRecord> parseRecordsJson(byte[] json) {
-        if (json == null) {
-            return null;
+    /** 在任何磁盘/数据库写入前验证备份中的实体和跨表引用。 */
+    private void validateImportedStructure(List<HabitItem> habits,
+                                           List<CheckInRecord> records,
+                                           List<UserAccount> accounts) throws IOException {
+        if (habits == null) {
+            throw new IOException("备份缺少习惯列表");
         }
-        try {
-            Type recType = new TypeToken<List<CheckInRecord>>() {}.getType();
-            return gson.fromJson(new String(json, StandardCharsets.UTF_8), recType);
-        } catch (Exception e) {
-            return null;
+
+        Set<Long> habitIds = new HashSet<>();
+        for (HabitItem habit : habits) {
+            if (habit == null || habit.getId() <= 0 || !habitIds.add(habit.getId())) {
+                throw new IOException("备份包含空习惯、非法 id 或重复 id");
+            }
+        }
+
+        if (records != null) {
+            Set<String> recordKeys = new HashSet<>();
+            for (CheckInRecord record : records) {
+                if (record == null || record.getDate() == null
+                        || record.getDate().trim().isEmpty()) {
+                    throw new IOException("打卡记录为空或缺少日期");
+                }
+                if (!habitIds.contains(record.getHabitId())) {
+                    throw new IOException("打卡记录引用了备份中不存在的习惯");
+                }
+                String key = record.getHabitId() + "\n" + record.getDate();
+                if (!recordKeys.add(key)) {
+                    throw new IOException("备份包含重复的习惯日期打卡记录");
+                }
+            }
+        }
+
+        if (accounts != null) {
+            Set<String> usernames = new HashSet<>();
+            for (UserAccount account : accounts) {
+                if (account == null || account.getUsername() == null
+                        || account.getUsername().trim().isEmpty()) {
+                    throw new IOException("账号记录为空或缺少用户名");
+                }
+                if (!usernames.add(account.getUsername())) {
+                    throw new IOException("备份包含重复用户名");
+                }
+                boolean hasHash = !isBlank(account.getPasswordHash()) && !isBlank(account.getSalt());
+                boolean hasLegacyPassword = !isBlank(account.getPassword());
+                if (!hasHash && !hasLegacyPassword) {
+                    throw new IOException("账号缺少可恢复的登录凭据");
+                }
+            }
+            for (HabitItem habit : habits) {
+                String owner = habit.getOwnerUsername();
+                if (owner != null && !owner.isEmpty() && !usernames.contains(owner)) {
+                    throw new IOException("习惯归属账号不在备份账号列表中");
+                }
+            }
         }
     }
 
-    /** 解析旧结构 accounts.json。损坏或缺失返回 null（此时不动现有账号）。 */
-    private List<UserAccount> parseAccountsJson(byte[] json) {
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    /**
+     * 解析旧结构 check_in_records.json。
+     *
+     * <p><b>区分缺失与损坏。</b>文件缺失（{@code json==null}）返回 null，由调用方走兼容降级
+     * （从 habits 的 completedDates/notes 重建记录）。但文件<b>存在却无法解析</b>（非法 JSON、
+     * 类型不符、Gson 反序列化异常）时<b>抛出异常</b>——绝不静默当成「缺失」而丢弃这份本应携带的
+     * 打卡记录，交由 {@link #importBackup} 的 catch 整体失败并回滚 DB 与图片。</p>
+     */
+    private List<CheckInRecord> parseRecordsJson(byte[] json) throws IOException {
         if (json == null) {
             return null;
         }
+        Type recType = new TypeToken<List<CheckInRecord>>() {}.getType();
+        List<CheckInRecord> parsed;
         try {
-            Type type = new TypeToken<List<UserAccount>>() {}.getType();
-            return gson.fromJson(new String(json, StandardCharsets.UTF_8), type);
+            parsed = gson.fromJson(new String(json, StandardCharsets.UTF_8), recType);
         } catch (Exception e) {
+            throw new IOException("check_in_records.json 存在但无法解析（损坏或结构非法）", e);
+        }
+        if (parsed == null) {
+            // 内容是字面量 "null" 或空——文件存在却给不出有效列表，视为损坏。
+            throw new IOException("check_in_records.json 存在但解析结果为空（结构非法）");
+        }
+        return parsed;
+    }
+
+    /**
+     * 解析旧结构 accounts.json。
+     *
+     * <p><b>区分缺失与损坏。</b>文件缺失（{@code json==null}）返回 null，此时不动现有账号。
+     * 文件<b>存在却无法解析</b>（非法 JSON、类型不符如对象而非数组）时<b>抛出异常</b>——
+     * 绝不静默当成「缺失」而放过一份损坏备份，交由 {@link #importBackup} 整体失败并回滚。</p>
+     */
+    private List<UserAccount> parseAccountsJson(byte[] json) throws IOException {
+        if (json == null) {
             return null;
         }
+        Type type = new TypeToken<List<UserAccount>>() {}.getType();
+        List<UserAccount> parsed;
+        try {
+            parsed = gson.fromJson(new String(json, StandardCharsets.UTF_8), type);
+        } catch (Exception e) {
+            throw new IOException("accounts.json 存在但无法解析（损坏或结构非法）", e);
+        }
+        if (parsed == null) {
+            throw new IOException("accounts.json 存在但解析结果为空（结构非法）");
+        }
+        return parsed;
     }
 
     /**
