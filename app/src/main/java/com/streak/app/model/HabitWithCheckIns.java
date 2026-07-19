@@ -85,24 +85,7 @@ public final class HabitWithCheckIns {
 
     /** 深拷贝习惯元数据及其集合字段，避免外部修改破坏快照的 id/归属。 */
     private static HabitItem copyOf(HabitItem source) {
-        if (source == null) {
-            return null;
-        }
-        HabitItem copy = new HabitItem();
-        copy.setId(source.getId());
-        copy.setTitle(source.getTitle());
-        copy.setContent(source.getContent());
-        copy.setReminderTime(source.getReminderTime());
-        copy.setCreatedAt(source.getCreatedAt());
-        copy.setImageUri(source.getImageUri());
-        copy.setCategory(source.getCategory());
-        copy.setTags(new ArrayList<>(source.getTags()));
-        copy.setCompletedDates(new ArrayList<>(source.getCompletedDates()));
-        copy.setReminderEnabled(source.isReminderEnabled());
-        copy.setWeeklyTarget(source.getWeeklyTarget());
-        copy.setNotes(new LinkedHashMap<>(source.getNotes()));
-        copy.setOwnerUsername(source.getOwnerUsername());
-        return copy;
+        return source == null ? null : new HabitItem(source);
     }
 
     /** 组合视图承载的习惯元数据。每次返回深拷贝，修改它不会影响本快照。 */
