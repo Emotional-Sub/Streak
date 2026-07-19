@@ -93,6 +93,10 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
     private String checkInOriginalPhotoUri;
     private boolean checkInSaved;
     private String pendingCheckInCameraPath;
+    // 打卡弹层「代」计数：每开一个新弹层自增，关闭时也自增。相册/相机异步回调捕获发起时的代号，
+    // 完成时若与当前代号不符（弹层已换/已关），说明结果属于过期弹层——立即删除复制出的图片、
+    // 绝不串写进新弹层，杜绝跨弹层图片错配与未引用图残留。
+    private int checkInGeneration;
 
     // 等待存储权限授权后再保存的二维码（仅 API 26-28 用得到）
     private Bitmap pendingSaveQrBitmap;
@@ -132,28 +136,59 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         checkInGalleryLauncher = registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
                 uri -> {
-                    if (uri != null) {
-                        diskIO.execute(() -> {
-                            String copied = viewModel.repository().copyGalleryImage(uri);
-                            mainThread.execute(() -> {
-                                if (copied != null && isAdded()) {
-                                    updateCheckInPhoto(copied);
-                                }
-                            });
-                        });
+                    if (uri == null) {
+                        return;
                     }
+                    // 捕获发起相册选择时的弹层代号与 binding：异步复制完成后据此判断结果是否仍属当前弹层。
+                    final int generation = checkInGeneration;
+                    final SheetCheckInBinding target = activeCheckInBinding;
+                    diskIO.execute(() -> {
+                        String copied = viewModel.repository().copyGalleryImage(uri);
+                        if (copied == null) {
+                            return;
+                        }
+                        mainThread.execute(() -> {
+                            if (!isAdded() || generation != checkInGeneration
+                                    || activeCheckInBinding != target) {
+                                // 弹层已关/已换：复制出的图成了未引用文件，删掉，绝不写进当前新弹层。
+                                diskIO.execute(() -> viewModel.repository().deletePhoto(copied));
+                                return;
+                            }
+                            updateCheckInPhoto(copied);
+                        });
+                    });
                 });
 
         checkInCameraLauncher = registerForActivityResult(
                 new ActivityResultContracts.TakePicture(),
                 success -> {
-                    if (success != null && success && pendingCheckInCameraPath != null) {
-                        String uri = viewModel.repository().persistCapturedPhoto(pendingCheckInCameraPath);
-                        pendingCheckInCameraPath = null;
-                        if (uri != null) {
-                            updateCheckInPhoto(uri);
-                        }
+                    final String pending = pendingCheckInCameraPath;
+                    pendingCheckInCameraPath = null;
+                    if (pending == null) {
+                        return;
                     }
+                    // 拍照失败/页面已销毁/弹层已关：临时文件成了未引用文件，删掉，不落库。
+                    if (success == null || !success || !isAdded() || activeCheckInBinding == null) {
+                        diskIO.execute(() -> viewModel.repository().deletePhoto(pending));
+                        return;
+                    }
+                    final int generation = checkInGeneration;
+                    final SheetCheckInBinding target = activeCheckInBinding;
+                    diskIO.execute(() -> {
+                        String uri = viewModel.repository().persistCapturedPhoto(pending);
+                        if (uri == null) {
+                            return;
+                        }
+                        mainThread.execute(() -> {
+                            if (!isAdded() || generation != checkInGeneration
+                                    || activeCheckInBinding != target) {
+                                // 落库期间弹层已关/已换：删掉持久化出的图，绝不串写进新弹层。
+                                diskIO.execute(() -> viewModel.repository().deletePhoto(uri));
+                                return;
+                            }
+                            updateCheckInPhoto(uri);
+                        });
+                    });
                 });
 
         checkInCameraPermissionLauncher = registerForActivityResult(
@@ -384,14 +419,13 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
                 .setNegativeButton(R.string.action_cancel, null)
                 .setPositiveButton(R.string.action_delete, (dialog, which) -> {
                     final long habitId = item.getId();
-                    final String imageUri = item.getImageUri();
                     // 进后台前捕获 application context：后台任务里不能再调 requireContext()，
                     // 页面若在删除期间被销毁/旋转会抛 IllegalStateException。
                     final android.content.Context appContext = requireContext().getApplicationContext();
                     diskIO.execute(() -> {
-                        viewModel.repository().deleteHabitById(habitId);
-                        viewModel.repository().cancelReminder(habitId);
-                        viewModel.repository().deletePhoto(imageUri);
+                        if (viewModel.repository().deleteHabitById(habitId)) {
+                            viewModel.repository().cancelReminder(habitId);
+                        }
                         StreakWidgetProvider.refreshAll(appContext);
                         mainThread.execute(() -> {
                             if (isAdded()) {
@@ -414,6 +448,7 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         final String date = HabitUtils.today();
         SheetCheckInBinding sheetBinding = SheetCheckInBinding.inflate(getLayoutInflater());
 
+        checkInGeneration++;
         activeCheckInBinding = sheetBinding;
         checkInHabitId = item.getId();
         checkInDate = date;
@@ -475,8 +510,10 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
                 //（原照片仍被 DB 引用，删了会留下悬空引用）。
                 if (!checkInSaved && checkInPhotoUri != null
                         && !checkInPhotoUri.equals(checkInOriginalPhotoUri)) {
-                    viewModel.repository().deletePhoto(checkInPhotoUri);
+                    final String orphan = checkInPhotoUri;
+                    diskIO.execute(() -> viewModel.repository().deletePhoto(orphan));
                 }
+                checkInGeneration++;
                 activeCheckInBinding = null;
                 checkInPhotoUri = null;
                 checkInOriginalPhotoUri = null;
@@ -485,17 +522,43 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         });
 
         sheetBinding.btnCheckInSkip.setOnClickListener(v -> {
-            checkInSaved = true;
-            writeCheckIn(item.getId(), date, 0, 0, null, null);
-            dialog.dismiss();
+            // 「跳过」= 仅记一条最简打卡（无心情/耗时/备注/照片）。未改照片，photoChanged=false。
+            sheetBinding.btnCheckInSkip.setEnabled(false);
+            sheetBinding.btnCheckInSave.setEnabled(false);
+            writeCheckIn(item.getId(), date, 0, 0, null, null,
+                    checkInOriginalPhotoUri, false,
+                    () -> {
+                        checkInSaved = true;
+                        dialog.dismiss();
+                    },
+                    () -> {
+                        sheetBinding.btnCheckInSkip.setEnabled(true);
+                        sheetBinding.btnCheckInSave.setEnabled(true);
+                        toast(getString(R.string.toast_save_failed_retry));
+                    });
         });
         sheetBinding.btnCheckInSave.setOnClickListener(v -> {
             int duration = parseDuration(sheetBinding.etCheckInDuration.getText());
             String note = String.valueOf(sheetBinding.etCheckInNote.getText()).trim();
-            checkInSaved = true;
+            final boolean photoChanged = isCheckInPhotoChanged();
+            final String expectedOriginal = checkInOriginalPhotoUri;
+            // 保存期间禁用两按钮，防重复点击提交多次；结果回来再据成功/失败决定关弹层或恢复。
+            sheetBinding.btnCheckInSkip.setEnabled(false);
+            sheetBinding.btnCheckInSave.setEnabled(false);
             writeCheckIn(item.getId(), date, checkInMood, duration,
-                    note.isEmpty() ? null : note, checkInPhotoUri);
-            dialog.dismiss();
+                    note.isEmpty() ? null : note, checkInPhotoUri,
+                    expectedOriginal, photoChanged,
+                    () -> {
+                        checkInSaved = true;
+                        dialog.dismiss();
+                    },
+                    () -> {
+                        // 写入失败（乐观并发被拒/DB 失败）：恢复按钮、提示重试、不关弹层，
+                        // 本次临时图保留以便重试，最终取消关闭时由 onDismiss 统一清理不留孤儿。
+                        sheetBinding.btnCheckInSkip.setEnabled(true);
+                        sheetBinding.btnCheckInSave.setEnabled(true);
+                        toast(getString(R.string.toast_save_failed_retry));
+                    });
         });
         dialog.show();
     }
@@ -543,7 +606,8 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
     private void updateCheckInPhoto(String imageUri) {
         if (checkInPhotoUri != null && !checkInPhotoUri.equals(imageUri)
                 && !checkInPhotoUri.equals(checkInOriginalPhotoUri)) {
-            viewModel.repository().deletePhoto(checkInPhotoUri);
+            final String orphan = checkInPhotoUri;
+            diskIO.execute(() -> viewModel.repository().deletePhoto(orphan));
         }
         checkInPhotoUri = imageUri;
         if (activeCheckInBinding != null) {
@@ -557,7 +621,8 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         // 只删本次新拍/新选的临时图；DB 原照片不在此删（用户点「移除」后若保存，
         // upsertCheckIn 会以 photoUri=null 落库并删原文件；若取消则原照片应保持）。
         if (checkInPhotoUri != null && !checkInPhotoUri.equals(checkInOriginalPhotoUri)) {
-            viewModel.repository().deletePhoto(checkInPhotoUri);
+            final String orphan = checkInPhotoUri;
+            diskIO.execute(() -> viewModel.repository().deletePhoto(orphan));
         }
         checkInPhotoUri = null;
         if (activeCheckInBinding != null) {
@@ -567,17 +632,40 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
         }
     }
 
+    /** 本次弹层用户是否改动过照片（当前选择 != 打开时 DB 原照片）。 */
+    private boolean isCheckInPhotoChanged() {
+        return !java.util.Objects.equals(checkInPhotoUri, checkInOriginalPhotoUri);
+    }
+
+    /**
+     * 后台直写打卡并把「实际写入结果」回传 UI：仅当 upsertCheckIn 返回 true（真正落库）才走
+     * onSuccess（置已保存/关弹层/刷新）；返回 false（乐观并发被拒或写失败）走 onFailure
+     * （恢复按钮、提示重试、不关弹层）。避免「DB 没写成，UI 却已关弹层并显示已打卡」。
+     */
     private void writeCheckIn(long habitId, String date, int mood,
-                             int durationMinutes, String note, String photoUri) {
+                             int durationMinutes, String note, String photoUri,
+                             String expectedOriginalPhotoUri, boolean photoChanged,
+                             Runnable onSuccess, Runnable onFailure) {
         // 先在主线程取应用级 Context：后台任务里再调 requireContext() 若页面已销毁会抛
         // IllegalStateException。appContext 生命周期与进程一致，可安全跨线程持有。
         final android.content.Context appContext = requireContext().getApplicationContext();
         diskIO.execute(() -> {
-            viewModel.repository().upsertCheckIn(habitId, date, mood, durationMinutes, note, photoUri);
-            StreakWidgetProvider.refreshAll(appContext);
+            boolean ok = viewModel.repository().upsertCheckIn(habitId, date, mood, durationMinutes,
+                    note, photoUri, expectedOriginalPhotoUri, photoChanged);
+            if (ok) {
+                StreakWidgetProvider.refreshAll(appContext);
+            }
             mainThread.execute(() -> {
-                if (isAdded()) {
+                if (!isAdded()) {
+                    return;
+                }
+                if (ok) {
+                    if (onSuccess != null) {
+                        onSuccess.run();
+                    }
                     viewModel.reload();
+                } else if (onFailure != null) {
+                    onFailure.run();
                 }
             });
         });
