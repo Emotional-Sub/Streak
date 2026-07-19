@@ -18,8 +18,10 @@ import java.util.function.Supplier;
  * 习惯仓库（Phase B 从 {@code AppRepository} 拆出）：习惯的增删改查与账号隔离。
  *
  * <p><b>职责边界。</b>只负责 habits 表的读写，且全部限定在「当前登录账号」范围内。
- * 打卡记录的聚合回填/回写委托 {@link CheckInRepository}（读习惯时把记录物化进
- * completedDates/notes、写习惯时把这两个派生字段同步回记录表）。</p>
+ * 读习惯时委托 {@link CheckInRepository#aggregateInto} 把打卡记录聚合回填进 completedDates/notes
+ * 只读投影，供既有消费端读取。<b>saveHabit 只写习惯元数据行、不回写打卡记录</b>——打卡的增删改
+ * 一律由直写 API（{@code upsertCheckIn}/{@code removeCheckIn}）独占落到记录表。仅 {@link #writeHabits}
+ * （整机备份恢复的整表替换）仍用 {@link CheckInRepository#syncFrom} 从派生字段重建记录。</p>
  *
  * <p><b>当前账号来源。</b>为避免与 Auth 层循环依赖，当前用户名由构造时注入的
  * {@link Supplier} 提供（{@code AppRepository} 传入 {@code this::getCurrentUser}），
