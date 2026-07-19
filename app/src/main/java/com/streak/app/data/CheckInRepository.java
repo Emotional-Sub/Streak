@@ -18,14 +18,18 @@ import java.util.Set;
  * <p><b>职责边界。</b>打卡的增删改查（打卡/撤销/补卡/备注/心情/耗时/照片），以及打卡照片的清理。
  * 打卡真相源是 {@code check_in_records} 表，本类直接操作 {@link CheckInRecordDao}。</p>
  *
- * <p><b>聚合桥。</b>历史上 {@code HabitItem} 用 {@code completedDates/notes} 两个内存派生字段
- * 表达打卡，约 90 处消费端仍读它们。本类提供 {@link #aggregateInto} 把记录聚合回填进这两个字段
- * （读时物化）、{@link #syncFrom} 把这两个字段的变化写回记录表（旧写入路径的回写桥）。
- * 这两个方法供 {@code HabitRepository}/{@code AppRepository} 在读写习惯时调用，
- * 是记录表与过渡视图之间的唯一桥接点。</p>
+ * <p><b>打卡写入唯一入口。</b>打卡的增删改统一走直写 API {@link #upsertCheckIn}/{@link #removeCheckIn}
+ * 直接落记录表——这是打卡数据的<b>唯一</b>写入路径。{@code saveHabit} 只保存习惯元数据、不再回写打卡，
+ * 避免编辑页持过期 {@code completedDates} 快照时反向同步误删并发产生的打卡记录。</p>
  *
- * <p><b>事务边界。</b>{@link #syncFrom} 与删习惯行必须与之绑成同一事务，故本类不自开事务，
- * 由调用方（{@code AppRepository.saveHabit}）用 {@code database.runInTransaction} 包住。</p>
+ * <p><b>聚合桥（读时物化）。</b>历史上 {@code HabitItem} 用 {@code completedDates/notes} 两个内存派生字段
+ * 表达打卡，约 90 处消费端仍读它们。本类提供 {@link #aggregateInto} 把记录聚合回填进这两个字段，
+ * 供 {@code HabitRepository}/{@code AppRepository} 读习惯时调用，是记录表 -> 过渡视图的只读桥接点。</p>
+ *
+ * <p><b>回写桥（仅备份恢复用）。</b>{@link #syncFrom} 把 {@code completedDates/notes} 反向同步进记录表，
+ * <b>如今只剩 {@code HabitRepository.writeHabits}（整机备份恢复的整表替换）一个调用方</b>——那里的习惯对象
+ * 来自刚解析的备份、其派生字段就是权威来源，故用它重建记录表是安全的。日常保存习惯（saveHabit）绝不调它。
+ * 该方法不自开事务，由调用方（{@code writeHabits}）用 {@code database.runInTransaction} 与整表替换绑成一笔事务。</p>
  */
 public class CheckInRepository {
 
@@ -155,11 +159,18 @@ public class CheckInRepository {
      * 把某习惯内存派生字段（completedDates/notes）的状态同步进 check_in_records 表：
      * 新增缺失日期的记录、删除已不在 completedDates 里的记录、更新备注。
      *
-     * <p>关键：对仍保留的日期，<b>保留其已有的 mood/duration/photo</b>——既有打卡 UI 只改
-     * 日期与备注，若这里整表重建会把心情/耗时/照片抹掉。故按日期 diff 增量同步，
-     * 而非 clear + 重插。记录表是真相源，本方法是「旧视图字段 -> 真相源」的回写桥。</p>
+     * <p><b>唯一调用方：{@code HabitRepository.writeHabits}（备份恢复的整表替换）。</b>
+     * 恢复时习惯与打卡整体来自同一份备份快照，据 completedDates 重建记录是正确且必要的。</p>
      *
-     * <p>不自开事务：调用方须把本方法与习惯行 upsert 绑成同一事务。</p>
+     * <p><b>⚠️ 绝不可用于「编辑习惯」路径（{@code saveHabit}）。</b>编辑页可能持有<b>过期快照</b>
+     * ——加载后、保存前若有并发打卡，其 completedDates 已陈旧；此时按它反向 diff 会<b>误删</b>
+     * 并发新增的打卡记录。故 {@code saveHabit} 只 upsert 习惯行，打卡增删改一律走直写 API
+     * （{@code upsertCheckIn}/{@code removeCheckIn}）。这是本方法与 saveHabit 解耦的根本原因。</p>
+     *
+     * <p>关键：对仍保留的日期，<b>保留其已有的 mood/duration/photo</b>——只覆盖 note，
+     * 按日期 diff 增量同步而非 clear + 重插，避免抹掉心情/耗时/照片。记录表是真相源。</p>
+     *
+     * <p>不自开事务：调用方（{@code writeHabits}）须把本方法与习惯行替换绑成同一事务。</p>
      */
     public void syncFrom(HabitItem habit) {
         if (habit == null) {
