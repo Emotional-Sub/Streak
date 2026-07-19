@@ -145,6 +145,29 @@ public class AppRepositoryCheckInApiTest {
     }
 
     @Test
+    public void sharedPhoto_isKeptUntilLastDatabaseReferenceIsRemoved() throws Exception {
+        repository.registerAccount("user1", "pw123456");
+        loginAs("user1");
+        repository.saveHabit(newHabit(7006L, "第一条", "user1"));
+        repository.saveHabit(newHabit(7007L, "第二条", "user1"));
+
+        File photo = new File(context.getFilesDir(), "habit_images/shared_checkin.jpg");
+        photo.getParentFile().mkdirs();
+        try (FileOutputStream fos = new FileOutputStream(photo)) {
+            fos.write(new byte[]{10, 11, 12});
+        }
+        String uri = android.net.Uri.fromFile(photo).toString();
+        repository.upsertCheckIn(7006L, "2026-02-01", 4, 15, null, uri);
+        repository.upsertCheckIn(7007L, "2026-02-01", 4, 15, null, uri);
+
+        repository.removeCheckIn(7006L, "2026-02-01");
+        assertTrue("另一条记录仍引用时共享照片必须保留", photo.exists());
+
+        repository.removeCheckIn(7007L, "2026-02-01");
+        assertFalse("最后一个引用删除后共享照片应清理", photo.exists());
+    }
+
+    @Test
     public void upsertCheckIn_reflectedInAggregatedCompletedDates() {
         repository.registerAccount("user1", "pw123456");
         loginAs("user1");
