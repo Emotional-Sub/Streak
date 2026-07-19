@@ -102,7 +102,8 @@ public class AppRepository {
         this.habitDao = database.habitDao();
         this.userDao = database.userDao();
         this.checkInRecordDao = database.checkInRecordDao();
-        this.checkInRepository = new CheckInRepository(this.checkInRecordDao, this.imageStore);
+        this.checkInRepository = new CheckInRepository(
+                this.checkInRecordDao, this.imageStore, this::isImageReferenced);
         this.habitRepository = new HabitRepository(this.database, this.habitDao, this.checkInRepository, this::getCurrentUser);
         this.authRepository = new AuthRepository(this.context);
         this.userRepository = new UserRepository(this.database, this.userDao, this.habitDao, this::getCurrentUser);
@@ -347,7 +348,11 @@ public class AppRepository {
         // 收集习惯图与打卡照片路径，并取消提醒（提醒非 DB 数据，可提前取消）。
         List<HabitItem> ownHabits = readHabits();
         for (HabitItem habit : ownHabits) {
-            reminderManager.cancel(habit.getId());
+            try {
+                reminderManager.cancel(habit.getId());
+            } catch (Exception ignored) {
+                // 提醒清理是非关键副作用，不能阻断账号删除。
+            }
             imagesToDelete.add(habit.getImageUri());
             // 打卡记录里附带的照片（与习惯自身 imageUri 独立）
             for (CheckInRecord record : getCheckIns(habit.getId())) {
@@ -433,10 +438,7 @@ public class AppRepository {
     /** 取某习惯某天的打卡记录（含心情/耗时/照片），无则 null。供新打卡 UI/详情页读富字段。
      *  账号隔离：习惯不属当前账号时返回 null，不泄漏他人打卡数据。 */
     public CheckInRecord getCheckIn(long habitId, String date) {
-        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
-            return null;
-        }
-        return checkInRepository.getCheckIn(habitId, date);
+        return checkInRepository.getCheckInForOwner(habitId, date, getCurrentUser());
     }
 
     /**
@@ -444,10 +446,7 @@ public class AppRepository {
      * （心情/耗时/照片），不经 completedDates/notes 过渡视图。
      */
     public List<CheckInRecord> getCheckIns(long habitId) {
-        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
-            return new ArrayList<>();
-        }
-        return checkInRepository.getCheckIns(habitId);
+        return checkInRepository.getCheckInsForOwner(habitId, getCurrentUser());
     }
 
     /**
@@ -459,12 +458,23 @@ public class AppRepository {
      *
      * <p>换照片时删除被替换掉的旧照片文件，避免磁盘留孤儿图。</p>
      */
-    public void upsertCheckIn(long habitId, String date, int mood,
+    public boolean upsertCheckIn(long habitId, String date, int mood,
                              int durationMinutes, String note, String photoUri) {
-        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
-            return; // 非本账号习惯：拒绝写入（数据隔离防御）
-        }
-        checkInRepository.upsertCheckIn(habitId, date, mood, durationMinutes, note, photoUri);
+        return checkInRepository.upsertCheckIn(
+                habitId, date, mood, durationMinutes, note, photoUri, getCurrentUser());
+    }
+
+    /**
+     * 直写打卡（带照片乐观并发校验）。photoChanged=false 保留数据库当前照片；
+     * photoChanged=true 时要求数据库照片仍等于 expectedOriginalPhotoUri，否则原子拒绝并返回 false。
+     * 返回实际写入结果，供 UI 决定是否关闭弹窗/标记已保存。
+     */
+    public boolean upsertCheckIn(long habitId, String date, int mood,
+                             int durationMinutes, String note, String photoUri,
+                             String expectedOriginalPhotoUri, boolean photoChanged) {
+        return checkInRepository.upsertCheckIn(
+                habitId, date, mood, durationMinutes, note, photoUri, getCurrentUser(),
+                expectedOriginalPhotoUri, photoChanged);
     }
 
     /**
@@ -472,10 +482,7 @@ public class AppRepository {
      * 直写真相源，不经派生字段。
      */
     public void removeCheckIn(long habitId, String date) {
-        if (!habitRepository.isOwnedByCurrentUser(habitId)) {
-            return; // 非本账号习惯：拒绝撤销（数据隔离防御）
-        }
-        checkInRepository.removeCheckIn(habitId, date);
+        checkInRepository.removeCheckIn(habitId, date, getCurrentUser());
     }
 
     /**
@@ -493,8 +500,18 @@ public class AppRepository {
      * 用过期快照覆盖掉其它习惯的改动（补卡、编辑、提醒回执可能同时发生）。
      * 新习惯若未设归属，则盖上当前登录账号，保证数据隔离。
      */
-        public void saveHabit(HabitItem habit) {
-        habitRepository.saveHabit(habit);
+        public boolean saveHabit(HabitItem habit) {
+        return habitRepository.saveHabit(habit);
+    }
+
+    /**
+     * 保存习惯元数据（带图片乐观并发校验）。imageChanged=false 保留数据库当前图；
+     * imageChanged=true 时要求数据库图仍等于 expectedOriginalImageUri，否则原子拒绝返回 false，
+     * 不覆盖也不删除本次新图。供编辑页防「旧快照覆盖并发新图」。
+     */
+    public boolean saveHabit(HabitItem habit, String expectedOriginalImageUri,
+                             boolean imageChanged) {
+        return habitRepository.saveHabit(habit, expectedOriginalImageUri, imageChanged);
     }
 
     /**
@@ -517,8 +534,8 @@ public class AppRepository {
      * 按 id 删除单个习惯，并限定归属为当前账号。同样只动一行，不整表覆盖，避免并发丢更新。
      * 带 owner 过滤是数据隔离的防御措施：即便传入其它账号的 id 也删不到，不会跨账号误删。
      */
-        public void deleteHabitById(long habitId) {
-        habitRepository.deleteHabitById(habitId);
+        public boolean deleteHabitById(long habitId) {
+        return habitRepository.deleteHabitById(habitId);
     }
 
     /**
@@ -559,15 +576,69 @@ public class AppRepository {
     }
 
     public void deletePhoto(String filePathOrUri) {
-        imageStore.deletePhoto(filePathOrUri);
+        checkInRepository.deletePhotoIfUnreferenced(filePathOrUri);
     }
 
     /**
-     * 删除某习惯所有打卡记录里附带的照片文件（每天打卡可各自配一张，与习惯自身 imageUri 独立）。
-     * 删习惯/删号时调用，避免记录行删了但磁盘照片成孤儿文件。
+     * 判断图片是否仍被任一习惯、账号头像或打卡记录引用。
+     * 图片文件名可能通过 file:// 与直接路径两种形式保存，故按规范化实际路径比较，
+     * 而不是只比较数据库里的原始字符串。
      */
-    private void deleteCheckInPhotos(long habitId) {
-        checkInRepository.deleteCheckInPhotos(habitId);
+    private boolean isImageReferenced(String candidate) {
+        if (candidate == null || candidate.trim().isEmpty()) {
+            return false;
+        }
+        // 快速路径：单条 SQL EXISTS 精确匹配三表，命中即仍被引用，避免物化三表逐个算 canonicalPath。
+        if (checkInRecordDao.isImageUriReferenced(candidate)) {
+            return true;
+        }
+        // 兜底：跨格式（file:// vs 裸路径）差异用 canonical 比对补齐（少见，仅在精确匹配未命中时走）。
+        List<HabitItem> habits = habitDao.getAll();
+        if (habits != null) {
+            for (HabitItem habit : habits) {
+                if (habit != null && sameImageReference(candidate, habit.getImageUri())) {
+                    return true;
+                }
+            }
+        }
+        List<CheckInRecord> records = checkInRecordDao.getAll();
+        if (records != null) {
+            for (CheckInRecord record : records) {
+                if (record != null && sameImageReference(candidate, record.getPhotoUri())) {
+                    return true;
+                }
+            }
+        }
+        List<UserAccount> accounts = userDao.getAll();
+        if (accounts != null) {
+            for (UserAccount account : accounts) {
+                if (account != null && sameImageReference(candidate, account.getAvatarUri())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean sameImageReference(String left, String right) {
+        if (left == null || left.trim().isEmpty()
+                || right == null || right.trim().isEmpty()) {
+            return false;
+        }
+        File leftFile = imageStore.resolveImageFile(left);
+        File rightFile = imageStore.resolveImageFile(right);
+        if (leftFile == null || rightFile == null) {
+            return left.equals(right);
+        }
+        try {
+            String leftPath = leftFile.getCanonicalPath();
+            String rightPath = rightFile.getCanonicalPath();
+            return File.separatorChar == '\\'
+                    ? leftPath.equalsIgnoreCase(rightPath)
+                    : leftPath.equals(rightPath);
+        } catch (IOException e) {
+            return left.equals(right);
+        }
     }
 
     public String copyGalleryImage(Uri uri) {
