@@ -239,15 +239,19 @@ public class ProfileFragment extends Fragment {
                     // 删除涉及写库、取消提醒、删图片，放后台线程，完成后回主线程跳登录页
                     AppExecutors.getInstance().diskIO().execute(() -> {
                         repository.deleteCurrentAccountAndData();
-                        com.streak.app.widget.StreakWidgetProvider.refreshAll(appContext);
+                        try {
+                            com.streak.app.widget.StreakWidgetProvider.refreshAll(appContext);
+                        } catch (Exception ignored) {
+                            // 小组件刷新失败不能阻断删号后的导航。
+                        }
                         AppExecutors.getInstance().mainThread().execute(() -> {
-                            if (!isAdded()) {
-                                return;
-                            }
-                            android.widget.Toast.makeText(requireContext(),
+                            android.widget.Toast.makeText(appContext,
                                     R.string.toast_account_deleted, android.widget.Toast.LENGTH_SHORT).show();
-                            if (getActivity() instanceof DashboardHost) {
+                            if (isAdded() && getActivity() instanceof DashboardHost) {
                                 ((DashboardHost) getActivity()).onAccountDeleted();
+                            } else {
+                                // 配置重建后旧 Fragment 已脱离宿主，仍要用进程级 Context 完成跳转。
+                                DashboardActivity.launchLogin(appContext);
                             }
                         });
                     });
