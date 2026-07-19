@@ -89,10 +89,12 @@ public class UserAccount {
     }
 
     /**
-     * 旧明文账号（只有 password、没有 hash）需要在首次登录时迁移。
+     * 旧明文账号（只有 password、没有 hash/salt）需要在首次登录时迁移。
+     * 半对 hash/salt 或明文与新凭据混存都属于损坏凭据，不能降级为旧格式。
      */
     public boolean isLegacyPlaintext() {
         return (passwordHash == null || passwordHash.isEmpty())
+                && (salt == null || salt.isEmpty())
                 && password != null && !password.isEmpty();
     }
 }
