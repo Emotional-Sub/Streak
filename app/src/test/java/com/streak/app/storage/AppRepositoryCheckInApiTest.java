@@ -14,6 +14,7 @@ import com.streak.app.db.CheckInRecordDao;
 import com.streak.app.db.StreakDatabase;
 import com.streak.app.model.CheckInRecord;
 import com.streak.app.model.HabitItem;
+import com.streak.app.model.HabitWithCheckIns;
 
 import org.junit.After;
 import org.junit.Before;
@@ -24,6 +25,7 @@ import org.robolectric.RobolectricTestRunner;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 打卡真相源直写 API（{@link AppRepository#upsertCheckIn}/{@link AppRepository#removeCheckIn}
@@ -155,6 +157,60 @@ public class AppRepositoryCheckInApiTest {
         assertEquals(2, reloaded.getCompletedDates().size());
         assertTrue(reloaded.getCompletedDates().contains("2026-02-01"));
         assertTrue(reloaded.getCompletedDates().contains("2026-02-02"));
+    }
+
+    @Test
+    public void crossAccountGuard_rejectsReadWriteAndRemove() {
+        repository.registerAccount("owner1", "pw123456");
+        repository.registerAccount("owner2", "pw123456");
+
+        loginAs("owner1");
+        repository.saveHabit(newHabit(7010L, "owner1 habit", "owner1"));
+        repository.upsertCheckIn(7010L, "2026-02-01", 4, 15, "original", null);
+
+        loginAs("owner2");
+        assertNull(repository.getCheckIn(7010L, "2026-02-01"));
+        assertTrue(repository.getCheckIns(7010L).isEmpty());
+        repository.upsertCheckIn(7010L, "2026-02-01", 1, 1, "tampered", null);
+        repository.removeCheckIn(7010L, "2026-02-01");
+
+        loginAs("owner1");
+        CheckInRecord unchanged = repository.getCheckIn(7010L, "2026-02-01");
+        assertNotNull(unchanged);
+        assertEquals(4, unchanged.getMood());
+        assertEquals("original", unchanged.getNote());
+    }
+
+    @Test
+    public void readHabitsWithCheckIns_groupsRichRecordsForCurrentAccountOnly() {
+        repository.registerAccount("owner1", "pw123456");
+        repository.registerAccount("owner2", "pw123456");
+
+        loginAs("owner1");
+        repository.saveHabit(newHabit(7020L, "first", "owner1"));
+        repository.saveHabit(newHabit(7021L, "second", "owner1"));
+        repository.upsertCheckIn(7020L, "2026-02-01", 5, 30, "focused", null);
+
+        loginAs("owner2");
+        repository.saveHabit(newHabit(7022L, "other", "owner2"));
+        repository.upsertCheckIn(7022L, "2026-02-01", 1, 5, "private", null);
+
+        loginAs("owner1");
+        List<HabitWithCheckIns> views = repository.readHabitsWithCheckIns();
+        assertEquals(2, views.size());
+
+        HabitWithCheckIns first = null;
+        for (HabitWithCheckIns view : views) {
+            assertEquals("owner1", view.habit().getOwnerUsername());
+            if (view.habitId() == 7020L) {
+                first = view;
+            }
+        }
+        assertNotNull(first);
+        assertEquals(1, first.records().size());
+        assertEquals(5, first.records().get(0).getMood());
+        assertEquals(30, first.records().get(0).getDurationMinutes());
+        assertEquals("focused", first.records().get(0).getNote());
     }
 
     // ---- 辅助 ----
