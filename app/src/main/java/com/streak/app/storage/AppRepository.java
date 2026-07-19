@@ -251,8 +251,15 @@ public class AppRepository {
     public void logout() {
         // 退出前取消本账号所有习惯的提醒（否则退出后旧账号闹钟仍续排），再清空当前登录用户名。
         // 必须在清空前取消——cancelRemindersForCurrentUser 依赖 getCurrentUser 定位当前账号习惯。
-        cancelRemindersForCurrentUser();
-        authRepository.clearCurrentUser();
+        // 提醒取消是 best-effort：即使数据库/AlarmManager 异常，退出也必须清掉会话，
+        // 否则登录页会再次把用户送回 Dashboard。
+        try {
+            cancelRemindersForCurrentUser();
+        } catch (Exception ignored) {
+            // 提醒残留可在后续登录/启动时重排，不能让它阻断退出或删号后的导航。
+        } finally {
+            authRepository.clearCurrentUser();
+        }
     }
 
 
