@@ -64,6 +64,34 @@ public class HabitItem {
         this.reminderEnabled = reminderEnabled;
     }
 
+    /**
+     * 防御性深拷贝。直接读取同类私有字段，避免调用会惰性初始化集合的 getter，
+     * 因而不会在复制过程中把来源对象的 null 集合偷偷改成空集合。
+     */
+    @Ignore
+    public HabitItem(HabitItem source) {
+        this();
+        if (source == null) {
+            return;
+        }
+        this.id = source.id;
+        this.title = source.title;
+        this.content = source.content;
+        this.reminderTime = source.reminderTime;
+        this.createdAt = source.createdAt;
+        this.imageUri = source.imageUri;
+        this.category = source.category;
+        this.tags = source.tags == null ? new ArrayList<>() : new ArrayList<>(source.tags);
+        this.completedDates = source.completedDates == null
+                ? new ArrayList<>() : new ArrayList<>(source.completedDates);
+        this.reminderEnabled = source.reminderEnabled;
+        this.weeklyTarget = source.weeklyTarget;
+        this.notes = source.notes == null
+                ? new java.util.LinkedHashMap<>()
+                : new java.util.LinkedHashMap<>(source.notes);
+        this.ownerUsername = source.ownerUsername;
+    }
+
     public long getId() {
         return id;
     }
