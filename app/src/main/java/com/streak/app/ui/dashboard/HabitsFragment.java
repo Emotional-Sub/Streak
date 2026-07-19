@@ -38,6 +38,7 @@ import com.streak.app.ui.HabitAdapter;
 import com.streak.app.ui.HabitDetailActivity;
 import com.streak.app.ui.HabitEditorActivity;
 import com.streak.app.util.AppExecutors;
+import com.streak.app.util.CheckInCallbackGuard;
 import com.streak.app.util.HabitQrCodec;
 import com.streak.app.util.HabitUtils;
 import com.streak.app.util.ImageLoader;
@@ -148,8 +149,8 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
                             return;
                         }
                         mainThread.execute(() -> {
-                            if (!isAdded() || generation != checkInGeneration
-                                    || activeCheckInBinding != target) {
+                            if (!isAdded() || CheckInCallbackGuard.isStale(
+                                    generation, checkInGeneration, target, activeCheckInBinding)) {
                                 // 弹层已关/已换：复制出的图成了未引用文件，删掉，绝不写进当前新弹层。
                                 diskIO.execute(() -> viewModel.repository().deletePhoto(copied));
                                 return;
@@ -180,8 +181,8 @@ public class HabitsFragment extends Fragment implements HabitAdapter.Callback {
                             return;
                         }
                         mainThread.execute(() -> {
-                            if (!isAdded() || generation != checkInGeneration
-                                    || activeCheckInBinding != target) {
+                            if (!isAdded() || CheckInCallbackGuard.isStale(
+                                    generation, checkInGeneration, target, activeCheckInBinding)) {
                                 // 落库期间弹层已关/已换：删掉持久化出的图，绝不串写进新弹层。
                                 diskIO.execute(() -> viewModel.repository().deletePhoto(uri));
                                 return;
