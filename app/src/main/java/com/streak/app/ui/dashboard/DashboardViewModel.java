@@ -14,6 +14,7 @@ import com.streak.app.util.AppExecutors;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Dashboard 共享数据源（Phase C）。作用域挂在 {@code DashboardActivity} 上，
@@ -34,6 +35,7 @@ public class DashboardViewModel extends AndroidViewModel {
 
     private final MutableLiveData<List<HabitItem>> habits = new MutableLiveData<>(new ArrayList<>());
     private final MutableLiveData<String> displayName = new MutableLiveData<>("");
+    private final AtomicBoolean logoutInProgress = new AtomicBoolean(false);
 
     public DashboardViewModel(@NonNull Application application) {
         super(application);
@@ -53,6 +55,15 @@ public class DashboardViewModel extends AndroidViewModel {
     /** 共享仓库句柄，供 Fragment 执行打卡/编辑/删除等写操作后调 {@link #reload()} 刷新。 */
     public AppRepository repository() {
         return repository;
+    }
+
+    /** 配置重建期间共享的退出门闩，避免旋转后再次提交退出任务。 */
+    public boolean beginLogout() {
+        return logoutInProgress.compareAndSet(false, true);
+    }
+
+    public boolean isLogoutInProgress() {
+        return logoutInProgress.get();
     }
 
     /**
