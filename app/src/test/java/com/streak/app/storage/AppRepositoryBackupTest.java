@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 /**
@@ -84,6 +85,38 @@ public class AppRepositoryBackupTest {
         assertTrue("导入应成功", repository.importBackup(Uri.fromFile(zip)));
         loginAs("alice");
         assertEquals(2, repository.readHabits().size());
+    }
+
+    @Test
+    public void export_deduplicatesSameImageReferencedByMultipleHabits() throws Exception {
+        repository.registerAccount("shared", "pwSHARED");
+        loginAs("shared");
+
+        File image = new File(context.getFilesDir(), "habit_images/shared.jpg");
+        image.getParentFile().mkdirs();
+        try (FileOutputStream output = new FileOutputStream(image)) {
+            output.write(new byte[]{1, 2, 3, 4});
+        }
+        String uri = Uri.fromFile(image).toString();
+        HabitItem first = newHabit(5101L, "第一条", "shared");
+        first.setImageUri(uri);
+        HabitItem second = newHabit(5102L, "第二条", "shared");
+        second.setImageUri(uri);
+        repository.saveHabit(first);
+        repository.saveHabit(second);
+
+        File zip = repository.exportBackup();
+        assertNotNull(zip);
+        int imageEntries = 0;
+        try (ZipInputStream input = new ZipInputStream(new java.io.FileInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                if ("images/shared.jpg".equals(entry.getName())) {
+                    imageEntries++;
+                }
+            }
+        }
+        assertEquals("同一实际图片在 ZIP 中只能出现一次", 1, imageEntries);
     }
 
     // ---- 缺 habits.json：拒绝且不动现有数据 ----
