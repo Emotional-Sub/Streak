@@ -9,6 +9,7 @@ import android.content.Context;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.streak.app.db.StreakDatabase;
+import com.streak.app.model.UserAccount;
 
 import org.junit.After;
 import org.junit.Before;
@@ -73,5 +74,23 @@ public class AppRepositoryPasswordTest {
         repository.registerAccount("normal", "correct-horse");
         assertFalse(repository.validateLogin("normal", "wrong-horse"));
         assertTrue(repository.validateLogin("normal", "correct-horse"));
+    }
+
+    @Test
+    public void damagedStoredCredentials_failLoginWithoutThrowing() {
+        UserAccount invalidBase64 = new UserAccount();
+        invalidBase64.setUsername("invalid-base64");
+        invalidBase64.setPasswordHash("not base64!!!");
+        invalidBase64.setSalt("also invalid!!!");
+
+        UserAccount incompletePair = new UserAccount();
+        incompletePair.setUsername("incomplete");
+        incompletePair.setPasswordHash("AQID");
+
+        StreakDatabase.getInstance(context).userDao().upsert(invalidBase64);
+        StreakDatabase.getInstance(context).userDao().upsert(incompletePair);
+
+        assertFalse(repository.validateLogin("invalid-base64", "password"));
+        assertFalse(repository.validateLogin("incomplete", "password"));
     }
 }
