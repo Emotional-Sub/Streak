@@ -4,6 +4,7 @@ import android.util.Base64;
 
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import javax.crypto.SecretKeyFactory;
@@ -47,19 +48,47 @@ public final class PasswordHasher {
      * 常量时间比较，避免计时侧信道。
      */
     public static boolean verify(String password, String saltBase64, String expectedHashBase64) {
-        if (password == null || saltBase64 == null || expectedHashBase64 == null) {
+        if (password == null
+                || !isValidStoredCredential(expectedHashBase64, saltBase64)) {
             return false;
         }
-        String actual = hash(password, saltBase64);
-        byte[] a = actual.getBytes();
-        byte[] b = expectedHashBase64.getBytes();
-        if (a.length != b.length) {
+        try {
+            String actual = hash(password, saltBase64);
+            byte[] actualBytes = actual.getBytes(StandardCharsets.US_ASCII);
+            byte[] expectedBytes = expectedHashBase64.getBytes(StandardCharsets.US_ASCII);
+            if (actualBytes.length != expectedBytes.length) {
+                return false;
+            }
+            int diff = 0;
+            for (int i = 0; i < actualBytes.length; i++) {
+                diff |= actualBytes[i] ^ expectedBytes[i];
+            }
+            return diff == 0;
+        } catch (RuntimeException e) {
+            // Damaged persisted credentials must behave like a failed login,
+            // not crash the authentication path.
             return false;
         }
-        int diff = 0;
-        for (int i = 0; i < a.length; i++) {
-            diff |= a[i] ^ b[i];
+    }
+
+    public static boolean isValidStoredCredential(String hashBase64, String saltBase64) {
+        if (hashBase64 == null || hashBase64.isEmpty()
+                || saltBase64 == null || saltBase64.isEmpty()) {
+            return false;
         }
-        return diff == 0;
+        try {
+            byte[] salt = Base64.decode(saltBase64, Base64.NO_WRAP);
+            byte[] hash = Base64.decode(hashBase64, Base64.NO_WRAP);
+            return salt.length == SALT_LENGTH_BYTES
+                    && hash.length == KEY_LENGTH_BITS / 8
+                    && isCanonicalBase64(saltBase64, salt)
+                    && isCanonicalBase64(hashBase64, hash);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static boolean isCanonicalBase64(String value, byte[] decoded) {
+        return Base64.encodeToString(decoded, Base64.NO_WRAP).equals(value);
     }
 }
