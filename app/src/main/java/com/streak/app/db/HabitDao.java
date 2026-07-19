@@ -73,6 +73,23 @@ public interface HabitDao {
     void updateOwner(String oldOwner, String newOwner);
 
     /**
+     * 认领孤儿习惯：单条条件 UPDATE，只把 ownerUsername 改为 claimant，其余列一律不动
+     * （避免 getAll 后回写整行覆盖并发编辑）。孤儿 = ownerUsername 为空/null，或不在 validOwners 内。
+     * 返回受影响行数（= 认领条数）。有效账号集合直接进 SQL，判断与更新在同一条语句里完成。
+     */
+    @Query("UPDATE habits SET ownerUsername = :claimant "
+            + "WHERE ownerUsername IS NULL OR ownerUsername = '' "
+            + "OR ownerUsername NOT IN (:validOwners)")
+    int claimOrphans(String claimant, List<String> validOwners);
+
+    /**
+     * validOwners 为空时的退化分支：SQL 的 {@code NOT IN ()} 非法，故单列一个查询，
+     * 认领所有「空/null 归属」的习惯（无有效账号时，非空归属一律视为孤儿也认领）。
+     */
+    @Query("UPDATE habits SET ownerUsername = :claimant WHERE ownerUsername IS NOT :claimant")
+    int claimAllNotOwnedBy(String claimant);
+
+    /**
      * 用给定列表整体替换某账号的习惯：先删该账号旧数据，再批量写入。
      * 事务性保证中途失败回滚，且绝不触碰其它账号的习惯。
      */
