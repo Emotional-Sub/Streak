@@ -22,7 +22,6 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -62,17 +61,17 @@ public class AppRepositoryCheckInRecordTest {
         context.deleteDatabase("streak.db");
     }
 
-    // ---- 保存 -> 记录表；读取 -> 聚合回填 ----
+    // ---- 打卡写入走直写 API；读取 -> 聚合回填 ----
 
     @Test
-    public void saveHabit_writesCheckInsToRecordTable_andReadAggregatesBack() {
+    public void directWriteCheckIns_toRecordTable_andReadAggregatesBack() {
         repository.registerAccount("user1", "pw123456");
         loginAs("user1");
 
-        HabitItem habit = newHabit(9001L, "晨跑", "user1");
-        habit.setCompletedDates(new ArrayList<>(Arrays.asList("2026-01-01", "2026-01-02")));
-        habit.setNote("2026-01-01", "状态不错");
-        repository.saveHabit(habit);
+        // 习惯元数据经 saveHabit 落地；打卡走直写 API（真相源），不再依赖 saveHabit 回写。
+        repository.saveHabit(newHabit(9001L, "晨跑", "user1"));
+        repository.upsertCheckIn(9001L, "2026-01-01", 0, 0, "状态不错", null);
+        repository.upsertCheckIn(9001L, "2026-01-02", 0, 0, null, null);
 
         // 记录表里应有两条，备注落到对应日期
         List<CheckInRecord> records = recordDao.getByHabit(9001L);
@@ -89,55 +88,88 @@ public class AppRepositoryCheckInRecordTest {
     }
 
     @Test
-    public void unCheckingDate_removesItsRecord() {
+    public void removeCheckIn_removesItsRecord() {
         repository.registerAccount("user1", "pw123456");
         loginAs("user1");
 
-        HabitItem habit = newHabit(9002L, "背单词", "user1");
-        habit.setCompletedDates(new ArrayList<>(Arrays.asList("2026-01-01", "2026-01-02")));
-        repository.saveHabit(habit);
+        repository.saveHabit(newHabit(9002L, "背单词", "user1"));
+        repository.upsertCheckIn(9002L, "2026-01-01", 0, 0, null, null);
+        repository.upsertCheckIn(9002L, "2026-01-02", 0, 0, null, null);
         assertEquals(2, recordDao.getByHabit(9002L).size());
 
-        // 撤销 2026-01-02 的打卡：从派生字段移除后保存
-        HabitItem reloaded = repository.findHabitById(9002L);
-        List<String> dates = new ArrayList<>(reloaded.getCompletedDates());
-        dates.remove("2026-01-02");
-        reloaded.setCompletedDates(dates);
-        repository.saveHabit(reloaded);
+        // 撤销 2026-01-02 的打卡：走直写 API removeCheckIn（不再经 saveHabit 回写）
+        repository.removeCheckIn(9002L, "2026-01-02");
 
         List<CheckInRecord> records = recordDao.getByHabit(9002L);
         assertEquals("撤销后应只剩一条记录", 1, records.size());
         assertEquals("2026-01-01", records.get(0).getDate());
     }
 
+    /**
+     * 核心回归：保存习惯「元数据」（标题/分类/提醒等）绝不能删除或覆盖已有打卡的
+     * mood/duration/note/photo。saveHabit 已只写习惯行、不再回写打卡记录——本用例
+     * 正是防止「编辑页持过期快照 -> saveHabit 重新同步 -> 误删/覆盖打卡富字段」的回归守卫。
+     */
     @Test
-    public void resavingKeptDate_preservesMoodDurationPhoto() {
+    public void savingHabitMetadata_preservesExistingCheckInRichFields() {
         repository.registerAccount("user1", "pw123456");
         loginAs("user1");
 
-        HabitItem habit = newHabit(9003L, "冥想", "user1");
-        habit.setCompletedDates(new ArrayList<>(Arrays.asList("2026-01-01")));
-        repository.saveHabit(habit);
+        repository.saveHabit(newHabit(9003L, "冥想", "user1"));
+        // 用直写 API 落一条带完整富字段的打卡
+        repository.upsertCheckIn(9003L, "2026-01-01", 5, 20, "很平静", "file:///photo/checkin.jpg");
 
-        // 直接在记录表上补齐心情/耗时/照片（模拟新 UI 写入的富信息）
-        CheckInRecord record = recordDao.getByHabitAndDate(9003L, "2026-01-01");
-        assertNotNull(record);
-        record.setMood(5);
-        record.setDurationMinutes(20);
-        record.setPhotoUri("file:///photo/checkin.jpg");
-        recordDao.upsert(record);
-
-        // 既有打卡 UI 再保存（只带日期/备注，不含富字段）——不能把富字段抹掉
+        // 模拟编辑页：读出习惯（其 completedDates 已聚合回填），仅改元数据后保存。
+        // 关键：即便此时 reloaded 持有的是「读时快照」，saveHabit 也不得据此回写打卡表。
         HabitItem reloaded = repository.findHabitById(9003L);
-        reloaded.setNote("2026-01-01", "很平静");
+        assertNotNull(reloaded);
+        reloaded.setTitle("正念冥想");
+        reloaded.setCategory("生活");
+        reloaded.setReminderTime("21:30");
         repository.saveHabit(reloaded);
 
+        // 打卡富字段必须原样保留
         CheckInRecord after = recordDao.getByHabitAndDate(9003L, "2026-01-01");
-        assertNotNull(after);
+        assertNotNull("打卡记录不应被保存元数据删除", after);
         assertEquals("心情应保留", 5, after.getMood());
         assertEquals("耗时应保留", 20, after.getDurationMinutes());
         assertEquals("照片应保留", "file:///photo/checkin.jpg", after.getPhotoUri());
-        assertEquals("备注应更新", "很平静", after.getNote());
+        assertEquals("备注应保留", "很平静", after.getNote());
+
+        // 元数据确实更新了
+        HabitItem afterHabit = repository.findHabitById(9003L);
+        assertEquals("正念冥想", afterHabit.getTitle());
+        assertEquals("生活", afterHabit.getCategory());
+        assertEquals("21:30", afterHabit.getReminderTime());
+    }
+
+    /**
+     * 回归：编辑页可能持有「打卡日期已过期」的习惯快照——例如加载后、保存前，
+     * 后台并发新增了一条打卡。saveHabit 绝不能按这份过期的 completedDates 反向同步，
+     * 否则会误删并发产生的那条打卡记录。
+     */
+    @Test
+    public void savingStaleHabitSnapshot_doesNotDeleteConcurrentCheckIn() {
+        repository.registerAccount("user1", "pw123456");
+        loginAs("user1");
+
+        repository.saveHabit(newHabit(9007L, "阅读", "user1"));
+        repository.upsertCheckIn(9007L, "2026-01-01", 0, 0, null, null);
+
+        // 编辑页加载出快照：此刻只有 01-01 一条打卡
+        HabitItem staleSnapshot = repository.findHabitById(9007L);
+        assertEquals(1, staleSnapshot.getCompletedDates().size());
+
+        // 并发：后台又打卡了 01-02（直写 API）
+        repository.upsertCheckIn(9007L, "2026-01-02", 0, 0, null, null);
+
+        // 编辑页用过期快照保存（其 completedDates 仍只含 01-01）
+        repository.saveHabit(staleSnapshot);
+
+        // 并发新增的 01-02 不能被误删
+        List<CheckInRecord> records = recordDao.getByHabit(9007L);
+        assertEquals("过期快照保存不得删除并发打卡", 2, records.size());
+        assertNotNull(recordDao.getByHabitAndDate(9007L, "2026-01-02"));
     }
 
     // ---- 删习惯 -> 记录随之清理，且不跨账号 ----
@@ -147,9 +179,10 @@ public class AppRepositoryCheckInRecordTest {
         repository.registerAccount("user1", "pw123456");
         loginAs("user1");
 
-        HabitItem habit = newHabit(9004L, "喝水", "user1");
-        habit.setCompletedDates(new ArrayList<>(Arrays.asList("2026-01-01", "2026-01-02")));
-        repository.saveHabit(habit);
+        repository.saveHabit(newHabit(9004L, "喝水", "user1"));
+        // 打卡走直写 API（saveHabit 已不再回写打卡记录）
+        repository.upsertCheckIn(9004L, "2026-01-01", 0, 0, null, null);
+        repository.upsertCheckIn(9004L, "2026-01-02", 0, 0, null, null);
         assertEquals(2, recordDao.getByHabit(9004L).size());
 
         repository.deleteHabitById(9004L);
@@ -163,14 +196,12 @@ public class AppRepositoryCheckInRecordTest {
         repository.registerAccount("owner2", "pw123456");
 
         loginAs("owner1");
-        HabitItem h1 = newHabit(9005L, "1 的习惯", "owner1");
-        h1.setCompletedDates(new ArrayList<>(Arrays.asList("2026-01-01")));
-        repository.saveHabit(h1);
+        repository.saveHabit(newHabit(9005L, "1 的习惯", "owner1"));
+        repository.upsertCheckIn(9005L, "2026-01-01", 0, 0, null, null);
 
         loginAs("owner2");
-        HabitItem h2 = newHabit(9006L, "2 的习惯", "owner2");
-        h2.setCompletedDates(new ArrayList<>(Arrays.asList("2026-01-01")));
-        repository.saveHabit(h2);
+        repository.saveHabit(newHabit(9006L, "2 的习惯", "owner2"));
+        repository.upsertCheckIn(9006L, "2026-01-01", 0, 0, null, null);
 
         // owner2 登录态下试图删 owner1 的习惯 id：既删不到习惯，也不能误删其记录
         repository.deleteHabitById(9005L);
