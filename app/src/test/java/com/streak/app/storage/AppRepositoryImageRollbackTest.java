@@ -30,8 +30,8 @@ import java.util.zip.ZipOutputStream;
  * {@code .import_bak} 临时副本；导入失败时用副本还原、导入成功时删除副本。
  * 历史 bug 是同名旧图被 {@code FileOutputStream} 直接覆盖后无法恢复。</p>
  *
- * <p>制造「图片落地后才失败」的场景：让 accounts.json 是畸形 JSON（对象而非数组），
- * 图片先落地、随后账号解析抛异常，触发 importBackup 的 catch 回滚分支。</p>
+ * <p>制造「部分图片落地后才失败」的场景：前两个条目先覆盖/新建成功，第三个条目因
+ * 无法创建 {@code .import_bak} 副本而抛异常，触发 importBackup 的 catch 回滚分支。</p>
  */
 @RunWith(RobolectricTestRunner.class)
 public class AppRepositoryImageRollbackTest {
@@ -66,11 +66,19 @@ public class AppRepositoryImageRollbackTest {
         File existing = new File(imageDir, "existing.jpg");
         writeFile(existing, original);
 
-        // 构造一个「图片能落地、但随后失败」的坏备份：
+        File blocked = new File(imageDir, "blocked.jpg");
+        byte[] blockedOriginal = "BLOCKED-ORIGINAL".getBytes(StandardCharsets.UTF_8);
+        writeFile(blocked, blockedOriginal);
+        File blockingBak = new File(imageDir, "blocked.jpg.import_bak");
+        //noinspection ResultOfMethodCallIgnored
+        blockingBak.mkdirs();
+        writeFile(new File(blockingBak, "sentinel"), "x".getBytes(StandardCharsets.UTF_8));
+
+        // 构造一个结构合法、图片能落地的备份：
         // - habits.json 合法（能解析出 HabitBackup）
         // - images/existing.jpg 会覆盖同名旧图
         // - images/brandnew.jpg 是本机原本没有的新图
-        // - accounts.json 是畸形 JSON（对象而非数组），在图片落地后解析抛异常触发回滚
+        // - images/blocked.jpg 第三个处理，因副本目标被非空目录占用而失败
         File badZip = File.createTempFile("rollback", ".zip", context.getCacheDir());
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(badZip))) {
             writeEntry(zos, "habits.json",
@@ -80,11 +88,11 @@ public class AppRepositoryImageRollbackTest {
                     "NEW-IMAGE-BYTES".getBytes(StandardCharsets.UTF_8));
             writeEntry(zos, "images/brandnew.jpg",
                     "BRAND-NEW-BYTES".getBytes(StandardCharsets.UTF_8));
-            // 畸形：期望是 List<UserAccount>，这里给一个对象 -> Gson 解析抛异常
-            writeEntry(zos, "accounts.json", "{}".getBytes(StandardCharsets.UTF_8));
+            writeEntry(zos, "images/blocked.jpg",
+                    "MUST-NOT-BE-WRITTEN".getBytes(StandardCharsets.UTF_8));
         }
 
-        assertFalse("坏备份应导入失败", repository.importBackup(Uri.fromFile(badZip)));
+        assertFalse("部分图片写入后失败时导入应失败", repository.importBackup(Uri.fromFile(badZip)));
 
         // 同名旧图应被还原为原始内容（而非停留在被覆盖的新内容）
         assertTrue("原图应仍在", existing.exists());
@@ -92,6 +100,7 @@ public class AppRepositoryImageRollbackTest {
 
         // 本次新写入的图片应被删除（不留孤儿）
         assertFalse("新图应被回滚删除", new File(imageDir, "brandnew.jpg").exists());
+        assertArrayEquals("失败条目原图不得被覆盖", blockedOriginal, readFile(blocked));
 
         // 不应残留临时副本
         assertFalse("不应残留 .import_bak 临时副本",
