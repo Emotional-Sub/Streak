@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/Language-Java%2017-orange" alt="Java 17" />
   <img src="https://img.shields.io/badge/Android-8.0%20~%2014-3DDC84?logo=android&logoColor=white" alt="Android 8.0-14" />
   <img src="https://img.shields.io/badge/Database-Room%20(SQLite)-blue" alt="Room" />
-  <img src="https://img.shields.io/badge/Tests-179%20passing-brightgreen" alt="179 tests" />
+  <img src="https://img.shields.io/badge/Tests-188%20passing-brightgreen" alt="188 tests" />
   <img src="https://img.shields.io/badge/Lint-0%20error-success" alt="lint 0 error" />
   <img src="https://img.shields.io/badge/License-Educational-lightgrey" alt="License" />
 </p>
@@ -73,7 +73,7 @@
 | 📦 **原子备份导入** | 导入采用「全量校验通过再落地」策略，信封版本校验 + 散装文件语义校验；任一环节失败则数据库与图片全部回滚，绝不留下半成品 |
 | 🧱 **分层门面架构** | 1500+ 行的 `AppRepository` 按职责拆为 `data/` 下七个专职仓库，门面保持公开 API 不变；主界面由单 Activity 重构为 `DashboardActivity + 4 Fragment` |
 | 🧵 **统一线程模型** | 所有磁盘 IO / 计算 / UI 回调收敛到应用级 `AppExecutors`（diskIO 单线程串行 / computation / mainThread），消除散落的 `new Thread()` |
-| 🧪 **179 个单元测试** | 基于 JUnit4 + Robolectric，覆盖存储层、数据库迁移、备份保真、并发守卫、账号隔离、二维码编解码等，**本地 JVM 运行、无需真机**；lint 0 error |
+| 🧪 **188 个单元测试** | 基于 JUnit4 + Robolectric，覆盖存储层、数据库迁移、备份保真、并发守卫、账号隔离、二维码编解码、仪表盘旋转生命周期与打卡回调过期判定等，**本地 JVM 运行、无需真机**；lint 0 error |
 
 ---
 
@@ -94,7 +94,7 @@
 - 习惯列表支持按关键字搜索、按分类筛选，并按打卡状态分组展示
 
 ### ✅ 打卡与追踪
-- 一键今日打卡 / 取消打卡；可为每天的打卡写下备注 / 心情
+- 一键今日打卡 / 取消打卡；可为每天的打卡记录心情、耗时、备注与配图（拍照 / 相册），照片保存走乐观并发避免覆盖
 - 自动统计今日完成数、单个习惯连续打卡天数、累计打卡次数（按日期去重）
 - 每周 N 次型习惯按滚动 7 天窗口判定达标，避免「已完成本周目标却仍显示未打卡」
 - 日历页按月查看打卡分布，支持连续补卡
@@ -102,7 +102,7 @@
 ### 📊 习惯详情
 - 独立详情页展示单个习惯的关键数字（当前连续 / 历史最长 / 累计打卡）
 - 打卡热力图回顾长期坚持轨迹
-- 星期偏好、断卡预警等分析，以及按时间线排列的打卡备注
+- 星期偏好、断卡预警等分析，以及按时间线排列的打卡记录（备注 / 心情 / 耗时 / 配图）
 
 ### 🧠 智能洞察
 - 基于既有打卡数据的轻量分析（`HabitAnalytics`），不引入第三方库
