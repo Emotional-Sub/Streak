@@ -324,9 +324,8 @@ public class HabitEditorActivity extends AppCompatActivity {
             tags = cleaned;
         }
 
-        HabitItem item = originalHabit == null ? new HabitItem() : originalHabit;
-        // 先存旧图路径，因为下面 setImageUri 会直接改写 originalHabit 自身
-        String previousImageUri = originalHabit == null ? null : originalHabit.getImageUri();
+        // 编辑时使用防御性副本，保存被拒或失败都不污染加载时的原始快照。
+        HabitItem item = originalHabit == null ? new HabitItem() : new HabitItem(originalHabit);
         if (originalHabit == null) {
             // 仅新建时生成防撞 id：走仓库的全表存在性查询，对「所有账号」防撞。
             // 不能只在当前账号的 readHabits() 里查——id 是全表主键，漏查其它账号的
@@ -343,13 +342,16 @@ public class HabitEditorActivity extends AppCompatActivity {
         item.setWeeklyTarget(readWeeklyTarget());
         item.setImageUri(currentImageUri);
 
-        if (originalHabit != null && !TextUtils.equals(previousImageUri, currentImageUri)) {
-            repository.deletePhoto(previousImageUri);
-        }
-
         // 只 upsert 这一条（按 id 主键），不整表覆盖——避免并发下用本页的过期快照
         // 抹掉其它习惯的改动（如后台补卡/提醒回执）。id 唯一性由仓库全表防撞保证。
-        repository.saveHabit(item);
+        // 图片乐观并发：以加载时的原图为期望值，仅当本页确实改了图才带 imageChanged=true，
+        // 让仓库在同事务内校验数据库图未被并发替换；未改图则保留数据库最新图。
+        String expectedOriginalImageUri = originalHabit == null ? null : originalHabit.getImageUri();
+        boolean imageChanged = !TextUtils.equals(expectedOriginalImageUri, currentImageUri);
+        if (!repository.saveHabit(item, expectedOriginalImageUri, imageChanged)) {
+            Toast.makeText(this, R.string.toast_save_failed_retry, Toast.LENGTH_SHORT).show();
+            return;
+        }
         repository.syncReminder(item);
         savedHabit = true;
         setResult(RESULT_OK, new Intent().putExtra(EXTRA_HABIT_ID, item.getId()));
