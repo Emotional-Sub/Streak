@@ -241,22 +241,26 @@ public class CalendarFragment extends Fragment {
             rowBinding.btnSheetToggle.setVisibility(View.VISIBLE);
             rowBinding.btnSheetToggle.setText(completed ? getString(R.string.action_undo) : getString(R.string.action_makeup));
             rowBinding.btnSheetToggle.setOnClickListener(v -> {
-                // 原地更新数据并重建弹窗内容，支持连续补卡，不关闭弹窗。
-                toggleDateCheckIn(item.getId(), date, !completed);
-                // 内存态即时更新本地列表里这条习惯，弹窗重建即可反映；全局刷新走 viewModel.reload()
-                for (HabitItem h : habits) {
-                    if (h.getId() == item.getId()) {
-                        List<String> dates = new ArrayList<>(h.getCompletedDates());
-                        if (!completed) {
-                            if (!dates.contains(date)) dates.add(date);
-                        } else {
-                            dates.remove(date);
+                final boolean add = !completed;
+                // 防重复点击：写入进行中先禁用本行按钮。
+                rowBinding.btnSheetToggle.setEnabled(false);
+                // 关键：本地完成态<b>只在 DB 写入确认成功后</b>才更新并重建弹窗——DB 失败时不得
+                // 提前把这天标记成已完成/已撤销，否则弹窗显示与真相源不一致（假成功）。
+                toggleDateCheckIn(item.getId(), date, add, () -> {
+                    for (HabitItem h : habits) {
+                        if (h.getId() == item.getId()) {
+                            List<String> dates = new ArrayList<>(h.getCompletedDates());
+                            if (add) {
+                                if (!dates.contains(date)) dates.add(date);
+                            } else {
+                                dates.remove(date);
+                            }
+                            h.setCompletedDates(dates);
+                            break;
                         }
-                        h.setCompletedDates(dates);
-                        break;
                     }
-                }
-                populateCalendarSheet(sheetBinding, date);
+                    populateCalendarSheet(sheetBinding, date);
+                });
             });
         }
 
@@ -278,12 +282,14 @@ public class CalendarFragment extends Fragment {
     }
 
     /** 过去某天补卡/撤销：直写记录表（按 id，不整表覆盖），再让共享数据刷新全体页面。 */
-    private void toggleDateCheckIn(long habitId, String date, boolean add) {
+    private void toggleDateCheckIn(long habitId, String date, boolean add, Runnable onApplied) {
         // 先在主线程取 application context：后台任务可能在本页销毁后才跑完，
         // 那时再调 requireContext() 会抛 IllegalStateException。application context
         // 与 Fragment 生命周期无关，可安全跨销毁使用。
         final android.content.Context appContext = requireContext().getApplicationContext();
+        final java.util.concurrent.Executor mainThread = com.streak.app.util.AppExecutors.getInstance().mainThread();
         com.streak.app.util.AppExecutors.getInstance().diskIO().execute(() -> {
+            boolean applied;
             if (add) {
                 com.streak.app.model.CheckInRecord existing =
                         viewModel.repository().getCheckIn(habitId, date);
@@ -291,12 +297,28 @@ public class CalendarFragment extends Fragment {
                 int duration = existing == null ? 0 : existing.getDurationMinutes();
                 String note = existing == null ? null : existing.getNote();
                 String photo = existing == null ? null : existing.getPhotoUri();
-                viewModel.repository().upsertCheckIn(habitId, date, mood, duration, note, photo);
+                // 补卡保留既有富字段、不改照片（photoChanged=false）；applied 反映是否真正落库。
+                applied = viewModel.repository().upsertCheckIn(habitId, date, mood, duration,
+                        note, photo, photo, false);
             } else {
                 viewModel.repository().removeCheckIn(habitId, date);
+                applied = true; // removeCheckIn 无返回，不抛即视为成功
             }
-            com.streak.app.widget.StreakWidgetProvider.refreshAll(appContext);
-            viewModel.reload();
+            if (applied) {
+                com.streak.app.widget.StreakWidgetProvider.refreshAll(appContext);
+            }
+            mainThread.execute(() -> {
+                if (!isAdded()) {
+                    return;
+                }
+                if (applied) {
+                    // DB 确认成功后才更新本地态并刷新全体页面。
+                    if (onApplied != null) {
+                        onApplied.run();
+                    }
+                    viewModel.reload();
+                }
+            });
         });
     }
 
