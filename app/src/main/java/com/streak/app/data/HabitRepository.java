@@ -9,6 +9,7 @@ import com.streak.app.model.HabitItem;
 import com.streak.app.model.HabitWithCheckIns;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -61,19 +62,20 @@ public class HabitRepository {
         if (owner.isEmpty()) {
             return new ArrayList<>();
         }
-        List<HabitItem> habits = habitDao.getByOwner(owner);
-        if (habits == null) {
-            return new ArrayList<>();
-        }
-        List<Long> ids = new ArrayList<>(habits.size());
-        for (HabitItem habit : habits) {
-            ids.add(habit.getId());
-        }
-        Map<Long, List<CheckInRecord>> byHabit = checkInRepository.recordsGroupedByHabit(ids);
-        for (HabitItem habit : habits) {
-            checkInRepository.aggregateInto(habit, byHabit.get(habit.getId()));
-        }
-        return habits;
+        // 习惯与打卡在同一事务快照内读取：先按 owner 取习惯，再按 owner JOIN 取打卡，
+        // 两次查询都限定当前账号且同处一个事务，杜绝跨查询时间窗与账号越界。
+        return database.runInTransaction((java.util.concurrent.Callable<List<HabitItem>>) () -> {
+            List<HabitItem> habits = habitDao.getByOwner(owner);
+            if (habits == null) {
+                return new ArrayList<HabitItem>();
+            }
+            Map<Long, List<CheckInRecord>> byHabit =
+                    checkInRepository.recordsGroupedByOwner(owner);
+            for (HabitItem habit : habits) {
+                checkInRepository.aggregateInto(habit, byHabit.get(habit.getId()));
+            }
+            return new ArrayList<HabitItem>(habits);
+        });
     }
 
     /**
@@ -89,20 +91,20 @@ public class HabitRepository {
         if (owner.isEmpty()) {
             return new ArrayList<>();
         }
-        List<HabitItem> habits = habitDao.getByOwner(owner);
-        if (habits == null) {
-            return new ArrayList<>();
-        }
-        List<Long> ids = new ArrayList<>(habits.size());
-        for (HabitItem habit : habits) {
-            ids.add(habit.getId());
-        }
-        Map<Long, List<CheckInRecord>> byHabit = checkInRepository.recordsGroupedByHabit(ids);
-        List<HabitWithCheckIns> result = new ArrayList<>(habits.size());
-        for (HabitItem habit : habits) {
-            result.add(new HabitWithCheckIns(habit, byHabit.get(habit.getId())));
-        }
-        return result;
+        // 同事务快照：owner 取习惯 + owner JOIN 取打卡，两查询同处一个事务、均限定当前账号。
+        return database.runInTransaction((java.util.concurrent.Callable<List<HabitWithCheckIns>>) () -> {
+            List<HabitItem> habits = habitDao.getByOwner(owner);
+            if (habits == null) {
+                return new ArrayList<HabitWithCheckIns>();
+            }
+            Map<Long, List<CheckInRecord>> byHabit =
+                    checkInRepository.recordsGroupedByOwner(owner);
+            List<HabitWithCheckIns> result = new ArrayList<>(habits.size());
+            for (HabitItem habit : habits) {
+                result.add(new HabitWithCheckIns(habit, byHabit.get(habit.getId())));
+            }
+            return result;
+        });
     }
 
     /**
@@ -114,20 +116,73 @@ public class HabitRepository {
         if (owner.isEmpty()) {
             return;
         }
-        List<HabitItem> scoped = habits == null ? new ArrayList<>() : habits;
-        for (HabitItem habit : scoped) {
-            if (habit.getOwnerUsername() == null || habit.getOwnerUsername().isEmpty()) {
-                habit.setOwnerUsername(owner);
+        final List<HabitItem> scoped = new ArrayList<>();
+        // 预校验（不修改任何传入对象）：拒绝 null、重复 id、以及归属明确写着他账号的习惯。
+        // 归属为空的留到事务内、校验通过后再补盖当前账号，避免批次被拒时已污染调用方对象。
+        Set<Long> ids = new HashSet<>();
+        if (habits != null) {
+            for (HabitItem habit : habits) {
+                if (habit == null || habit.getId() <= 0 || !ids.add(habit.getId())) {
+                    return;
+                }
+                String habitOwner = habit.getOwnerUsername();
+                if (habitOwner != null && !habitOwner.isEmpty() && !owner.equals(habitOwner)) {
+                    return;
+                }
+            }
+            for (HabitItem habit : habits) {
+                HabitItem copy = copyHabit(habit);
+                if (copy.getOwnerUsername() == null || copy.getOwnerUsername().isEmpty()) {
+                    copy.setOwnerUsername(owner);
+                }
+                scoped.add(copy);
             }
         }
-        // 习惯行与打卡记录在同一事务里替换：先整表替换该账号的习惯，
-        // 再按每个习惯的内存派生字段同步其打卡记录，避免「习惯已换、记录未换」的半成品状态。
-        database.runInTransaction(() -> {
-            habitDao.replaceAllForOwner(owner, scoped);
-            for (HabitItem habit : scoped) {
-                checkInRepository.syncFrom(habit);
-            }
-        });
+        // 所有「按 id 的归属检查」与整表替换必须在同一事务里，保证原子性：
+        // 先在事务内逐个校验没有习惯 id 被其它账号占用；任一被占用即抛异常，
+        // Room 回滚整笔事务。因删除/盖归属都发生在校验通过之后，被拒时既不会先清空
+        // 当前账号数据，也不会部分修改传入对象。校验全过后才盖归属并整表替换，
+        // 再按每个习惯的派生字段重建打卡记录（仅备份恢复路径用 syncFrom）。
+        List<String> replacedImages = new ArrayList<>();
+        try {
+            database.runInTransaction(() -> {
+                for (HabitItem habit : scoped) {
+                    HabitItem existing = habitDao.findById(habit.getId());
+                    if (existing != null && !owner.equals(existing.getOwnerUsername())) {
+                        throw new WriteRejectedException();
+                    }
+                }
+                List<HabitItem> existingHabits = habitDao.getByOwner(owner);
+                if (existingHabits != null) {
+                    for (HabitItem existing : existingHabits) {
+                        if (existing.getImageUri() != null
+                                && !existing.getImageUri().trim().isEmpty()) {
+                            replacedImages.add(existing.getImageUri());
+                        }
+                        replacedImages.addAll(
+                                checkInRepository.getCheckInPhotoUris(existing.getId()));
+                    }
+                }
+                habitDao.replaceAllForOwner(owner, scoped);
+                for (HabitItem habit : scoped) {
+                    checkInRepository.syncFrom(habit);
+                }
+            });
+            checkInRepository.deletePhotos(replacedImages);
+        } catch (WriteRejectedException rejected) {
+            // 批次含被他账号占用的 id：事务已回滚，DB 与传入对象均保持原状。
+        }
+    }
+
+    /** 内部哨兵异常：用于在 writeHabits 事务内触发原子回滚（批次因归属冲突被整体拒绝）。 */
+    private static final class WriteRejectedException extends RuntimeException {
+        WriteRejectedException() {
+            super(null, null, false, false);
+        }
+    }
+
+    private HabitItem copyHabit(HabitItem source) {
+        return new HabitItem(source);
     }
 
     /**
@@ -141,15 +196,20 @@ public class HabitRepository {
     @Nullable
     public HabitItem findHabitById(long habitId) {
         String owner = currentUser();
-        HabitItem habit = habitDao.findById(habitId);
-        if (habit == null) {
+        if (owner.isEmpty()) {
             return null;
         }
-        if (owner.isEmpty() || !owner.equals(habit.getOwnerUsername())) {
-            return null; // 非当前账号：按数据隔离不返回
-        }
-        checkInRepository.aggregateInto(habit);
-        return habit;
+        // 习惯与打卡在同一事务快照内读取，且打卡按 owner JOIN 限定，不做无 owner 条件查询。
+        return database.runInTransaction((java.util.concurrent.Callable<HabitItem>) () -> {
+            HabitItem habit = habitDao.findById(habitId);
+            if (habit == null || !owner.equals(habit.getOwnerUsername())) {
+                return null; // 不存在或非当前账号：按数据隔离不返回
+            }
+            List<CheckInRecord> records =
+                    checkInRepository.getCheckInsForOwnerAsc(habitId, owner);
+            checkInRepository.aggregateInto(habit, records);
+            return habit;
+        });
     }
 
     /**
@@ -188,24 +248,103 @@ public class HabitRepository {
      * <p><b>业务边界（Phase B 收紧）。</b>未设归属的新习惯盖上当前账号；<b>拒绝保存归属他账号的对象</b>
      * ——若传入习惯的 ownerUsername 非空且不等于当前账号，直接返回不写，防止越权改写他人数据。</p>
      */
-    public void saveHabit(HabitItem habit) {
-        if (habit == null) {
-            return;
+    public boolean saveHabit(HabitItem habit) {
+        if (habit == null || habit.getId() <= 0) {
+            return false;
         }
         String owner = currentUser();
         if (owner.isEmpty()) {
-            return;
+            return false;
         }
-        String habitOwner = habit.getOwnerUsername();
-        if (habitOwner == null || habitOwner.isEmpty()) {
-            habit.setOwnerUsername(owner);
-        } else if (!owner.equals(habitOwner)) {
-            return; // 归属他账号：拒绝保存（数据隔离防御）
+        HabitItem candidate = copyHabit(habit);
+        String habitOwner = candidate.getOwnerUsername();
+        if (habitOwner != null && !habitOwner.isEmpty() && !owner.equals(habitOwner)) {
+            return false; // 归属他账号：拒绝保存（数据隔离防御）
         }
         // 只 upsert 习惯行本身。打卡记录不在此同步：编辑习惯只改标题/分类/提醒等元信息，
         // 不碰打卡；打卡的增删改由直写 API（upsertCheckIn/removeCheckIn）独占落到 check_in_records
         // 表。completedDates/notes 已是「读时聚合」的只读投影，不再作为写入路径回写。
-        habitDao.upsert(habit);
+        String[] replacedImage = {null};
+        boolean[] saved = {false};
+        database.runInTransaction(() -> {
+            HabitItem existing = habitDao.findById(candidate.getId());
+            if (existing == null || owner.equals(existing.getOwnerUsername())) {
+                if (existing != null
+                        && !java.util.Objects.equals(
+                        existing.getImageUri(), candidate.getImageUri())) {
+                    replacedImage[0] = existing.getImageUri();
+                }
+                if (candidate.getOwnerUsername() == null || candidate.getOwnerUsername().isEmpty()) {
+                    candidate.setOwnerUsername(owner);
+                }
+                habitDao.upsert(candidate);
+                saved[0] = true;
+            }
+        });
+        if (saved[0]) {
+            checkInRepository.deletePhotoIfUnreferenced(replacedImage[0]);
+        }
+        return saved[0];
+    }
+
+    /**
+     * 保存习惯元数据（带图片乐观并发校验）——编辑页专用，防旧快照覆盖并发新图。
+     *
+     * <p><b>imageChanged=false（本页没改图）：</b>保留数据库当前最新 imageUri，不用页面加载时的
+     * 过期图覆盖别处刚存的新图。</p>
+     *
+     * <p><b>imageChanged=true（本页改了图）：</b>要求数据库当前 imageUri 仍等于页面加载时看到的
+     * expectedOriginalImageUri；若已被并发替换，则<b>原子拒绝本次保存</b>（返回 false，不 upsert、
+     * 不删除任何图片，尤其不删本次新图），由调用方提示重试。</p>
+     *
+     * <p>新建习惯（数据库无此 id）不涉并发，直接按新值写入。</p>
+     */
+    public boolean saveHabit(HabitItem habit, String expectedOriginalImageUri,
+                             boolean imageChanged) {
+        if (habit == null || habit.getId() <= 0) {
+            return false;
+        }
+        String owner = currentUser();
+        if (owner.isEmpty()) {
+            return false;
+        }
+        HabitItem candidate = copyHabit(habit);
+        String habitOwner = candidate.getOwnerUsername();
+        if (habitOwner != null && !habitOwner.isEmpty() && !owner.equals(habitOwner)) {
+            return false; // 归属他账号：拒绝
+        }
+        String[] replacedImage = {null};
+        boolean[] saved = {false};
+        database.runInTransaction(() -> {
+            HabitItem existing = habitDao.findById(candidate.getId());
+            if (existing != null && !owner.equals(existing.getOwnerUsername())) {
+                return; // 归属他账号：拒绝
+            }
+            if (existing != null) {
+                String dbImage = existing.getImageUri();
+                if (!imageChanged) {
+                    // 本页没改图：保留数据库当前最新图，不覆盖。
+                    candidate.setImageUri(dbImage);
+                } else {
+                    // 本页改了图：数据库当前图必须仍是加载时的原图，否则并发已替换 -> 拒绝。
+                    if (!java.util.Objects.equals(dbImage, expectedOriginalImageUri)) {
+                        return; // saved 保持 false；不 upsert、不删任何图（含本次新图）
+                    }
+                    if (!java.util.Objects.equals(dbImage, candidate.getImageUri())) {
+                        replacedImage[0] = dbImage; // 换图成功，旧图待清理
+                    }
+                }
+            }
+            if (candidate.getOwnerUsername() == null || candidate.getOwnerUsername().isEmpty()) {
+                candidate.setOwnerUsername(owner);
+            }
+            habitDao.upsert(candidate);
+            saved[0] = true;
+        });
+        if (saved[0]) {
+            checkInRepository.deletePhotoIfUnreferenced(replacedImage[0]);
+        }
+        return saved[0];
     }
 
     /**
@@ -213,20 +352,32 @@ public class HabitRepository {
      * 带 owner 过滤是数据隔离的防御措施：即便传入其它账号的 id 也删不到，不会跨账号误删。
      *
      * <p>v4 起 check_in_records 有 FK ON DELETE CASCADE，删习惯行即自动删其打卡记录。
-     * 但先删磁盘上的打卡照片文件：DB 级联只清行、不清文件，行删掉后就再也枚举不到
-     * 这些照片路径了，会留下孤儿图。故先读照片路径删文件，再删习惯（触发级联删记录）。</p>
+     * 删除提交后再按全库引用检查清理习惯图和打卡照片，避免共享文件被误删；文件清理失败
+     * 也不会影响已经提交的数据库状态。</p>
      */
-    public void deleteHabitById(long habitId) {
+    public boolean deleteHabitById(long habitId) {
         String owner = currentUser();
         if (owner.isEmpty()) {
-            return;
+            return false;
         }
-        HabitItem target = habitDao.findById(habitId);
-        if (target == null || !owner.equals(target.getOwnerUsername())) {
-            return; // 不存在或非本账号：不删（数据隔离防御）
+        List<String> imagesToDelete = new ArrayList<>();
+        final int[] deleted = {0};
+        database.runInTransaction(() -> {
+            HabitItem target = habitDao.findById(habitId);
+            if (target == null || !owner.equals(target.getOwnerUsername())) {
+                return;
+            }
+            if (target.getImageUri() != null && !target.getImageUri().trim().isEmpty()) {
+                imagesToDelete.add(target.getImageUri());
+            }
+            imagesToDelete.addAll(checkInRepository.getCheckInPhotoUris(habitId));
+            deleted[0] = habitDao.deleteByIdForOwner(habitId, owner);
+        });
+        if (deleted[0] > 0) {
+            checkInRepository.deletePhotos(imagesToDelete);
+            return true;
         }
-        checkInRepository.deleteCheckInPhotos(habitId);
-        database.runInTransaction(() -> habitDao.deleteByIdForOwner(habitId, owner));
+        return false;
     }
 
     /**
@@ -248,24 +399,17 @@ public class HabitRepository {
         if (claimant == null || claimant.isEmpty()) {
             return 0;
         }
-        List<HabitItem> all = habitDao.getAll();
-        if (all == null || all.isEmpty()) {
-            return 0;
+        // 单条条件 UPDATE：只改 ownerUsername，其余列一律不动（不 getAll 回写整行，避免覆盖并发编辑）。
+        // 孤儿判定（归属空/null 或不在有效账号集合内）与更新在同一条 SQL 里完成，天然原子。
+        if (validOwners == null || validOwners.isEmpty()) {
+            // 无有效账号集合：认领所有归属不等于 claimant 的习惯（含空/null 归属）。
+            return database.runInTransaction(
+                    (java.util.concurrent.Callable<Integer>) () ->
+                            habitDao.claimAllNotOwnedBy(claimant));
         }
-        List<HabitItem> orphans = new ArrayList<>();
-        for (HabitItem habit : all) {
-            String owner = habit.getOwnerUsername();
-            boolean orphan = owner == null || owner.isEmpty()
-                    || validOwners == null || !validOwners.contains(owner);
-            if (orphan) {
-                habit.setOwnerUsername(claimant);
-                orphans.add(habit);
-            }
-        }
-        if (orphans.isEmpty()) {
-            return 0;
-        }
-        database.runInTransaction(() -> habitDao.upsertAll(orphans));
-        return orphans.size();
+        List<String> owners = new ArrayList<>(validOwners);
+        return database.runInTransaction(
+                (java.util.concurrent.Callable<Integer>) () ->
+                        habitDao.claimOrphans(claimant, owners));
     }
 }
