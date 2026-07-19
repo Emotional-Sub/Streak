@@ -101,10 +101,17 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
         });
 
         viewModel = new ViewModelProvider(this).get(DashboardViewModel.class);
+        if (viewModel.repository().getCurrentUser().isEmpty()) {
+            goToLogin();
+            return;
+        }
 
         setupLaunchers();
         setupFragments(savedInstanceState);
         setupToolbarAndNav();
+        if (viewModel.isLogoutInProgress()) {
+            setLogoutUiEnabled(false);
+        }
 
         lastResumeDate = com.streak.app.util.HabitUtils.today();
 
@@ -367,21 +374,46 @@ public class DashboardActivity extends AppCompatActivity implements DashboardHos
 
     @Override
     public void onLoggedOut() {
-        // 退出：取消本账号提醒 + 清登录态（后台 IO），刷新组件后再回登录页。
-        // 必须等 logout() 落定再跳转——否则登录页可能在旧 current_user 尚未清空时读到它，
-        // 直接又跳回 Dashboard，形成「退不出去」的导航竞态。故把 goToLogin 排在后台任务
-        // 完成后经 postToUi 主线程执行（带 isFinishing/isDestroyed 守卫）。
+        if (!viewModel.beginLogout()) {
+            return;
+        }
+        setLogoutUiEnabled(false);
+
+        // 跳转使用 application context，不再依赖发起退出的 Activity 实例仍然存活。
+        // 即使退出过程中旋转屏幕，任务完成后也会清空整个 Dashboard task 并进入登录页。
+        final android.content.Context appContext = getApplicationContext();
         backgroundExecutor.execute(() -> {
-            viewModel.repository().logout();
-            StreakWidgetProvider.refreshAll(getApplicationContext());
-            postToUi(this::goToLogin);
+            try {
+                viewModel.repository().logout();
+            } finally {
+                try {
+                    StreakWidgetProvider.refreshAll(appContext);
+                } catch (Exception ignored) {
+                    // 小组件刷新是 best-effort，不能阻断退出导航。
+                }
+                mainThread.execute(() -> launchLogin(appContext));
+            }
         });
     }
 
+    private void setLogoutUiEnabled(boolean enabled) {
+        binding.bottomNavigation.setEnabled(enabled);
+        binding.fabAddHabit.setEnabled(enabled);
+        binding.fabScanHabit.setEnabled(enabled);
+        android.view.MenuItem logoutItem = binding.toolbarDashboard.getMenu().findItem(R.id.action_logout);
+        if (logoutItem != null) {
+            logoutItem.setEnabled(enabled);
+        }
+    }
+
     private void goToLogin() {
-        Intent intent = new Intent(this, MainActivity.class)
-                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        startActivity(intent);
+        launchLogin(this);
         finish();
+    }
+
+    static void launchLogin(android.content.Context context) {
+        Intent intent = new Intent(context, MainActivity.class)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        context.startActivity(intent);
     }
 }
