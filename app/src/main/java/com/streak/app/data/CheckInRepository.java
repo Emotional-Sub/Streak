@@ -11,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * 打卡记录仓库（Phase B 从 {@code AppRepository} 拆出）。
@@ -35,10 +36,19 @@ public class CheckInRepository {
 
     private final CheckInRecordDao checkInRecordDao;
     private final ImageStore imageStore;
+    private final Predicate<String> imageReferenceChecker;
 
     public CheckInRepository(CheckInRecordDao checkInRecordDao, ImageStore imageStore) {
+        // 没有全表引用检查器时只能采取保守策略，避免误删仍被其它记录引用的文件。
+        this(checkInRecordDao, imageStore, uri -> true);
+    }
+
+    public CheckInRepository(CheckInRecordDao checkInRecordDao, ImageStore imageStore,
+                             Predicate<String> imageReferenceChecker) {
         this.checkInRecordDao = checkInRecordDao;
         this.imageStore = imageStore;
+        this.imageReferenceChecker = imageReferenceChecker == null
+                ? uri -> true : imageReferenceChecker;
     }
 
     /** 取某习惯某天的打卡记录（含心情/耗时/照片），无则 null。 */
@@ -47,6 +57,13 @@ public class CheckInRepository {
             return null;
         }
         return checkInRecordDao.getByHabitAndDate(habitId, date);
+    }
+
+    public CheckInRecord getCheckInForOwner(long habitId, String date, String owner) {
+        if (date == null || date.isEmpty() || owner == null || owner.isEmpty()) {
+            return null;
+        }
+        return checkInRecordDao.getByHabitAndDateForOwner(habitId, date, owner);
     }
 
     /** 取某习惯全部打卡记录，按日期降序（最近在前）。供详情页时间线直接读富字段。 */
@@ -59,45 +76,139 @@ public class CheckInRepository {
         return records;
     }
 
+    /** 账号限定、按日期升序取某习惯全部打卡记录（供聚合回填，JOIN owner，同事务内调用）。 */
+    public List<CheckInRecord> getCheckInsForOwnerAsc(long habitId, String owner) {
+        if (owner == null || owner.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<CheckInRecord> records = checkInRecordDao.getByHabitForOwner(habitId, owner);
+        return records == null ? new ArrayList<>() : records;
+    }
+
+    public List<CheckInRecord> getCheckInsForOwner(long habitId, String owner) {
+        if (owner == null || owner.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<CheckInRecord> records = checkInRecordDao.getByHabitForOwner(habitId, owner);
+        if (records == null) {
+            return new ArrayList<>();
+        }
+        Collections.sort(records, (a, b) -> b.getDate().compareTo(a.getDate()));
+        return records;
+    }
+
     /**
      * 直接写入/覆盖某习惯某天的打卡记录（含心情/耗时/照片/备注）——打卡真相源的直写入口。
      * (habitId,date) 冲突时 {@code @Upsert} 原地更新当天那条。换照片时删除被替换掉的旧照片文件。
      */
-    public void upsertCheckIn(long habitId, String date, int mood,
-                              int durationMinutes, String note, String photoUri) {
-        if (date == null || date.isEmpty()) {
-            return;
+    public boolean upsertCheckIn(long habitId, String date, int mood,
+                                 int durationMinutes, String note, String photoUri,
+                                 String owner) {
+        // 6 参遗留签名：无乐观并发信息，无条件覆盖当天记录（沿用旧语义，换图则删旧图）。
+        CheckInRecord record = validatedRecord(habitId, date, mood, durationMinutes, note,
+                photoUri, owner);
+        if (record == null) {
+            return false;
         }
-        CheckInRecord existing = checkInRecordDao.getByHabitAndDate(habitId, date);
-        // 照片换了：先记下旧照片路径，成功写入后再删，避免写失败却已删旧图。
-        String oldPhoto = existing == null ? null : existing.getPhotoUri();
+        CheckInRecordDao.OwnedUpsertResult result =
+                checkInRecordDao.upsertAndReturnPreviousForOwner(record, owner);
+        if (!result.wasWritten()) {
+            return false;
+        }
+        CheckInRecord previous = result.getPrevious();
+        String oldPhoto = previous == null ? null : previous.getPhotoUri();
+        if (oldPhoto != null && !oldPhoto.equals(record.getPhotoUri())) {
+            deletePhotoIfUnreferenced(oldPhoto);
+        }
+        return true;
+    }
 
-        CheckInRecord record = existing == null ? new CheckInRecord() : existing;
+    /** 校验输入并构造 record；非法返回 null。date 规范 yyyy-MM-dd、mood 0..5、duration 非负。 */
+    private CheckInRecord validatedRecord(long habitId, String date, int mood,
+                                          int durationMinutes, String note, String photoUri,
+                                          String owner) {
+        if (owner == null || owner.isEmpty() || !isValidDate(date)) {
+            return null;
+        }
+        if (mood < 0 || mood > 5 || durationMinutes < 0) {
+            return null;
+        }
+        CheckInRecord record = new CheckInRecord();
         record.setHabitId(habitId);
         record.setDate(date);
         record.setMood(mood);
         record.setDurationMinutes(durationMinutes);
         record.setNote(note == null || note.trim().isEmpty() ? null : note.trim());
         record.setPhotoUri(photoUri == null || photoUri.trim().isEmpty() ? null : photoUri.trim());
-        checkInRecordDao.upsert(record);
+        return record;
+    }
 
+    /**
+     * 直写打卡（带输入校验 + 照片乐观并发校验）。
+     *
+     * <p><b>输入校验（工作项8）。</b>date 必须是规范 {@code yyyy-MM-dd}（含真实存在的日期）、
+     * mood 限 {@code 0..5}、durationMinutes 不得为负；任一非法直接拒绝（返回 false），不写库。</p>
+     *
+     * <p><b>照片乐观并发（工作项4）。</b>photoChanged=false 时保留数据库当前最新照片；
+     * photoChanged=true 时要求数据库当前照片仍等于 expectedOriginalPhotoUri，否则原子拒绝，
+     * 并由本方法清理调用方本次新拷贝的临时图，杜绝旧快照覆盖并发新图。</p>
+     */
+    public boolean upsertCheckIn(long habitId, String date, int mood,
+                                 int durationMinutes, String note, String photoUri,
+                                 String owner, String expectedOriginalPhotoUri,
+                                 boolean photoChanged) {
+        CheckInRecord record = validatedRecord(habitId, date, mood, durationMinutes, note,
+                photoUri, owner);
+        if (record == null) {
+            return false;
+        }
+        String newPhoto = record.getPhotoUri();
+        // 读旧记录、比对期望原照片、写入，全在同一 Room 事务内，杜绝并发换图的时间窗。
+        CheckInRecordDao.OwnedUpsertResult result =
+                checkInRecordDao.upsertAndReturnPreviousForOwner(
+                        record, owner, expectedOriginalPhotoUri, photoChanged);
+        if (!result.wasWritten()) {
+            // 被拒（归属不符 / 照片已被并发替换）：清理本次新拷贝的临时图，避免留孤儿文件。
+            if (photoChanged && newPhoto != null) {
+                deletePhotoIfUnreferenced(newPhoto);
+            }
+            return false;
+        }
+        CheckInRecord previous = result.getPrevious();
+        String oldPhoto = previous == null ? null : previous.getPhotoUri();
+        // record.getPhotoUri() 是本次实际落库的照片（未改照片时已被 DAO 回填为 DB 现值）。
         if (oldPhoto != null && !oldPhoto.equals(record.getPhotoUri())) {
-            imageStore.deletePhoto(oldPhoto);
+            deletePhotoIfUnreferenced(oldPhoto);
+        }
+        return true;
+    }
+
+    /** 校验 date 是规范的 yyyy-MM-dd 且为真实存在的日历日期。 */
+    private static boolean isValidDate(String date) {
+        if (date == null || date.length() != 10) {
+            return false;
+        }
+        try {
+            java.time.LocalDate parsed = java.time.LocalDate.parse(
+                    date, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
+            return parsed.toString().equals(date);
+        } catch (java.time.format.DateTimeParseException e) {
+            return false;
         }
     }
 
     /**
      * 撤销某习惯某天的打卡：删记录表里的那一条，并删掉其附带的打卡照片文件（避免孤儿图）。
      */
-    public void removeCheckIn(long habitId, String date) {
-        if (date == null || date.isEmpty()) {
+    public void removeCheckIn(long habitId, String date, String owner) {
+        if (date == null || date.isEmpty() || owner == null || owner.isEmpty()) {
             return;
         }
-        CheckInRecord existing = checkInRecordDao.getByHabitAndDate(habitId, date);
-        if (existing != null) {
-            imageStore.deletePhoto(existing.getPhotoUri());
+        CheckInRecord deleted = checkInRecordDao.deleteAndReturnByHabitAndDateForOwner(
+                habitId, date, owner);
+        if (deleted != null) {
+            deletePhotoIfUnreferenced(deleted.getPhotoUri());
         }
-        checkInRecordDao.deleteByHabitAndDate(habitId, date);
     }
 
     /**
@@ -110,6 +221,24 @@ public class CheckInRepository {
             return byHabit;
         }
         List<CheckInRecord> records = checkInRecordDao.getByHabits(habitIds);
+        if (records != null) {
+            for (CheckInRecord record : records) {
+                byHabit.computeIfAbsent(record.getHabitId(), k -> new ArrayList<>()).add(record);
+            }
+        }
+        return byHabit;
+    }
+
+    /**
+     * 账号限定的分组取回：JOIN habits 按 owner 过滤一次取回该账号全部打卡记录并按 habitId 分组。
+     * 供 HabitRepository 在「按 owner 读习惯」的同一事务里聚合，消除跨查询时间窗与账号越界。
+     */
+    public Map<Long, List<CheckInRecord>> recordsGroupedByOwner(String owner) {
+        Map<Long, List<CheckInRecord>> byHabit = new HashMap<>();
+        if (owner == null || owner.isEmpty()) {
+            return byHabit;
+        }
+        List<CheckInRecord> records = checkInRecordDao.getByOwner(owner);
         if (records != null) {
             for (CheckInRecord record : records) {
                 byHabit.computeIfAbsent(record.getHabitId(), k -> new ArrayList<>()).add(record);
@@ -216,17 +345,46 @@ public class CheckInRepository {
         }
     }
 
-    /**
-     * 删除某习惯所有打卡记录里附带的照片文件（每天打卡可各自配一张，与习惯自身 imageUri 独立）。
-     * 删习惯/删号时调用，避免记录行删了但磁盘照片成孤儿文件。
-     */
-    public void deleteCheckInPhotos(long habitId) {
+    List<String> getCheckInPhotoUris(long habitId) {
+        List<String> photoUris = new ArrayList<>();
         List<CheckInRecord> records = checkInRecordDao.getByHabit(habitId);
         if (records == null) {
-            return;
+            return photoUris;
         }
         for (CheckInRecord record : records) {
-            imageStore.deletePhoto(record.getPhotoUri());
+            if (record.getPhotoUri() != null && !record.getPhotoUri().trim().isEmpty()) {
+                photoUris.add(record.getPhotoUri());
+            }
         }
+        return photoUris;
+    }
+
+    void deletePhotos(List<String> photoUris) {
+        if (photoUris == null) {
+            return;
+        }
+        for (String photoUri : photoUris) {
+            deletePhotoIfUnreferenced(photoUri);
+        }
+    }
+
+    /** 供门面在数据库提交后清理临时/孤儿图片；仍统一经过全表引用检查。 */
+    public void deletePhotoIfUnreferenced(String photoUri) {
+        deletePhotoIfUnreferencedInternal(photoUri);
+    }
+
+    private void deletePhotoIfUnreferencedInternal(String photoUri) {
+        if (photoUri == null || photoUri.trim().isEmpty()) {
+            return;
+        }
+        try {
+            if (imageReferenceChecker.test(photoUri)) {
+                return;
+            }
+        } catch (RuntimeException ignored) {
+            // 引用检查失败时宁可留下文件，也不能误删仍被数据库引用的图片。
+            return;
+        }
+        imageStore.deletePhoto(photoUri);
     }
 }
