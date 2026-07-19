@@ -18,6 +18,7 @@ import com.streak.app.util.PasswordHasher;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,8 +30,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -108,7 +111,12 @@ public class BackupService {
             allRecords = new ArrayList<>();
         }
         List<UserAccount> accounts = userRepository.loadAccounts();
-        List<UserAccount> safeAccounts = sanitizeAccountsForExport(accounts);
+        List<UserAccount> safeAccounts;
+        try {
+            safeAccounts = sanitizeAccountsForExport(accounts);
+        } catch (IOException e) {
+            return null;
+        }
         String exportedAt = LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
@@ -135,14 +143,15 @@ public class BackupService {
                     gson.toJson(allRecords).getBytes(StandardCharsets.UTF_8));
 
             // 4) 所有引用到的图片（习惯照片 + 头像 + 打卡照片），打包进 images/ 目录，文件名即原名
+            Map<String, String> exportedImages = new LinkedHashMap<>();
             for (HabitItem habit : habits) {
-                imageStore.addImageToZip(zos, habit.getImageUri());
+                addImageToZipOnce(zos, habit.getImageUri(), exportedImages);
             }
             for (UserAccount account : accounts) {
-                imageStore.addImageToZip(zos, account.getAvatarUri());
+                addImageToZipOnce(zos, account.getAvatarUri(), exportedImages);
             }
             for (CheckInRecord record : allRecords) {
-                imageStore.addImageToZip(zos, record.getPhotoUri());
+                addImageToZipOnce(zos, record.getPhotoUri(), exportedImages);
             }
         } catch (Exception e) {
             // 打包失败（磁盘满、写盘异常等）：删掉半成品文件并返回 null，
@@ -158,28 +167,62 @@ public class BackupService {
      * 备份里保留用户名/昵称/签名/头像，以及 PBKDF2 哈希+盐（非明文密码），
      * 以便删号后导入可完整重建账号并用原密码登回。明文 password 字段始终剔除。
      */
-    private List<UserAccount> sanitizeAccountsForExport(List<UserAccount> accounts) {
+    private List<UserAccount> sanitizeAccountsForExport(List<UserAccount> accounts) throws IOException {
         List<UserAccount> safe = new ArrayList<>();
         for (UserAccount account : accounts) {
+            if (account == null || isBlank(account.getUsername())) {
+                throw new IOException("账号数据无效");
+            }
             UserAccount copy = new UserAccount();
             copy.setUsername(account.getUsername());
             copy.setDisplayName(account.getDisplayName());
             copy.setMotto(account.getMotto());
             copy.setAvatarUri(account.getAvatarUri());
-            // 凭据：仅导出哈希+盐，便于完整恢复；绝不导出明文。
-            if (account.isLegacyPlaintext()) {
+            // 凭据只接受两种互斥状态：完整且有效的 hash+salt，或纯旧版明文。
+            // 半对凭据、损坏 Base64、以及 hash/salt 与明文混存都说明本地记录已损坏，
+            // 不能静默降级为明文迁移，否则会掩盖凭据异常。
+            boolean hashPresent = hasCredentialField(account.getPasswordHash());
+            boolean saltPresent = hasCredentialField(account.getSalt());
+            boolean hasLegacyPassword = !isBlank(account.getPassword());
+            if (!hashPresent && !saltPresent && hasLegacyPassword) {
                 // 旧明文账号尚未迁移：导出前临时哈希一份，避免凭据丢失导致导入后无法登录，
                 // 同时仍不写出明文。
                 String salt = PasswordHasher.generateSalt();
                 copy.setSalt(salt);
                 copy.setPasswordHash(PasswordHasher.hash(account.getPassword(), salt));
-            } else {
+            } else if (hashPresent && saltPresent && !hasLegacyPassword
+                    && PasswordHasher.isValidStoredCredential(
+                    account.getPasswordHash(), account.getSalt())) {
                 copy.setPasswordHash(account.getPasswordHash());
                 copy.setSalt(account.getSalt());
+            } else {
+                throw new IOException("账号凭据损坏: " + account.getUsername());
             }
             safe.add(copy);
         }
         return safe;
+    }
+
+    private void addImageToZipOnce(ZipOutputStream zos, String uri,
+                                   Map<String, String> exportedImages) throws Exception {
+        File source = imageStore.resolveImageFile(uri);
+        if (source == null || !source.exists()) {
+            return;
+        }
+        if (!source.isFile() || !isSafeImageName(source.getName())) {
+            throw new IOException("图片文件名不安全: " + source.getName());
+        }
+        String normalizedName = normalizeImageName(source.getName());
+        String canonicalPath = source.getCanonicalPath();
+        String existingPath = exportedImages.get(normalizedName);
+        if (existingPath != null) {
+            if (!existingPath.equals(canonicalPath)) {
+                throw new IOException("不同图片使用了相同文件名: " + source.getName());
+            }
+            return;
+        }
+        exportedImages.put(normalizedName, canonicalPath);
+        imageStore.addImageToZip(zos, uri);
     }
 
     private void writeZipEntry(ZipOutputStream zos, String name, byte[] data) throws Exception {
@@ -201,9 +244,11 @@ public class BackupService {
     public boolean importBackup(Uri zipUri) {
         // 本次新落地的图片文件，供失败回滚时删除（只删新建的，不动备份前已存在的同名文件）
         List<File> newlyWrittenImages = new ArrayList<>();
-        // 被本次导入覆盖的同名旧图：覆盖前先把原文件挪到 .import_bak 临时副本，
-        // 成功后删除副本，失败时用副本还原——否则同名旧图被覆盖后无法恢复。
+        // 被本次导入覆盖的同名旧图统一移入随机回滚目录，避免与普通图片名碰撞。
         List<File[]> overwrittenBackups = new ArrayList<>();
+        File importBackupDir = null;
+        int backupOrdinal = 0;
+        boolean databaseCommitted = false;
         try (InputStream rawInput = context.getContentResolver().openInputStream(zipUri)) {
             if (rawInput == null) {
                 return false;
@@ -214,6 +259,10 @@ public class BackupService {
             byte[] recordsJson = null;
             // 保留 ZIP 条目顺序，便于失败时按确定顺序回滚，也避免同一备份每次覆盖顺序不同。
             Map<String, byte[]> images = new LinkedHashMap<>();
+            // 规范名 -> ZIP 中的实际文件名。既用于大小写无关去重，也用于后续只重映射
+            // 本次备份确实携带并落地的图片，不能碰巧绑定到本机同名旧文件。
+            Map<String, String> importedImageNames = new LinkedHashMap<>();
+            Set<String> dataEntries = new HashSet<>();
 
             // 第一遍：全部读入内存，不写磁盘。累计条目数与解压字节，超上限即放弃（防 OOM）。
             long[] budget = {MAX_TOTAL_BYTES};
@@ -223,26 +272,55 @@ public class BackupService {
                 byte[] buffer = new byte[8192];
                 while ((entry = zis.getNextEntry()) != null) {
                     String name = entry.getName();
-                    if (entry.isDirectory()) {
-                        zis.closeEntry();
-                        continue;
-                    }
                     if (++entryCount > MAX_ENTRY_COUNT) {
                         return false;
                     }
+                    if (name == null || name.isEmpty()) {
+                        throw new IOException("备份包含空条目名");
+                    }
+                    if (entry.isDirectory()) {
+                        // 图片目录只允许扁平文件；images/、images/../ 等目录条目都不是合法图片名。
+                        if (name.startsWith("images/")
+                                && !isSafeImageName(name.substring("images/".length()))) {
+                            throw new IOException("备份包含不安全的图片目录条目: " + name);
+                        }
+                        // 目录条目同样消耗条目数和解压预算，不能用大量目录绕过 ZIP 上限。
+                        readEntryBytes(zis, buffer, budget);
+                        zis.closeEntry();
+                        continue;
+                    }
                     if ("backup.json".equals(name)) {
+                        if (!dataEntries.add(name)) {
+                            throw new IOException("备份包含重复结构条目: " + name);
+                        }
                         envelopeJson = readEntryBytes(zis, buffer, budget);
                     } else if ("habits.json".equals(name)) {
+                        if (!dataEntries.add(name)) {
+                            throw new IOException("备份包含重复结构条目: " + name);
+                        }
                         habitsJson = readEntryBytes(zis, buffer, budget);
                     } else if ("accounts.json".equals(name)) {
+                        if (!dataEntries.add(name)) {
+                            throw new IOException("备份包含重复结构条目: " + name);
+                        }
                         accountsJson = readEntryBytes(zis, buffer, budget);
                     } else if ("check_in_records.json".equals(name)) {
+                        if (!dataEntries.add(name)) {
+                            throw new IOException("备份包含重复结构条目: " + name);
+                        }
                         recordsJson = readEntryBytes(zis, buffer, budget);
                     } else if (name.startsWith("images/")) {
                         String fileName = name.substring("images/".length());
-                        if (isSafeImageName(fileName)) {
-                            images.put(fileName, readEntryBytes(zis, buffer, budget));
+                        if (!isSafeImageName(fileName)) {
+                            throw new IOException("备份包含不安全的图片条目: " + fileName);
                         }
+                        String normalizedName = normalizeImageName(fileName);
+                        if (importedImageNames.put(normalizedName, fileName) != null) {
+                            throw new IOException("备份包含重复图片条目: " + fileName);
+                        }
+                        images.put(fileName, readEntryBytes(zis, buffer, budget));
+                    } else {
+                        readEntryBytes(zis, buffer, budget);
                     }
                     zis.closeEntry();
                 }
@@ -297,6 +375,8 @@ public class BackupService {
 
             // 所有来源统一做语义校验，并且必须发生在图片落地/数据库事务之前。
             validateImportedStructure(parsedHabits, parsedRecords, parsedAccounts);
+            validateImportedImages(importedImageNames.keySet(),
+                    parsedHabits, parsedRecords, parsedAccounts);
 
             final List<HabitItem> rawHabits = parsedHabits;
             // 已解析出的记录/账号（信封优先，否则来自旧散装文件）——下面构建 finalRecords/
@@ -310,14 +390,18 @@ public class BackupService {
                 File out = new File(imageDir, img.getKey());
                 // 规范化路径，确保仍在 imageDir 内（防 Zip Slip）
                 if (!out.getCanonicalPath().startsWith(imageDir.getCanonicalPath() + File.separator)) {
-                    continue;
+                    throw new IOException("图片条目超出应用图片目录: " + img.getKey());
                 }
                 boolean existedBefore = out.exists();
                 if (existedBefore) {
+                    if (!out.isFile()) {
+                        throw new IOException("图片目标不是普通文件: " + out.getName());
+                    }
                     // 覆盖同名旧图前，先把原文件挪到临时副本，供失败时还原。
-                    File bak = new File(out.getParentFile(), out.getName() + ".import_bak");
-                    //noinspection ResultOfMethodCallIgnored
-                    bak.delete(); // 清理可能残留的上次副本
+                    if (importBackupDir == null) {
+                        importBackupDir = createImportBackupDir();
+                    }
+                    File bak = new File(importBackupDir, "original-" + backupOrdinal++);
                     if (out.renameTo(bak)) {
                         overwrittenBackups.add(new File[]{out, bak});
                     } else {
@@ -327,12 +411,11 @@ public class BackupService {
                         throw new IOException("无法为将被覆盖的图片创建可回滚副本: " + out.getName());
                     }
                 }
-                try (FileOutputStream fos = new FileOutputStream(out)) {
-                    fos.write(img.getValue());
-                }
                 if (!existedBefore) {
+                    // 先登记再写，确保写入或 close 阶段失败时也能清理半文件。
                     newlyWrittenImages.add(out);
                 }
+                writeImportedImage(out, img.getValue());
             }
 
             // 在内存里备好最终的习惯列表（图片已落地，可安全重映射路径）。
@@ -340,7 +423,7 @@ public class BackupService {
             // （登录页未登录也能触发导入）。缺归属的旧备份数据补上演示账号 student，保持数据隔离。
             final List<HabitItem> habits = rawHabits;
             for (HabitItem habit : habits) {
-                habit.setImageUri(remapImageUri(habit.getImageUri()));
+                habit.setImageUri(remapImageUri(habit.getImageUri(), importedImageNames));
                 if (habit.getOwnerUsername() == null || habit.getOwnerUsername().isEmpty()) {
                     habit.setOwnerUsername("student");
                 }
@@ -359,7 +442,7 @@ public class BackupService {
                     if (record == null || record.getDate() == null || record.getDate().isEmpty()) {
                         continue;
                     }
-                    record.setPhotoUri(remapImageUri(record.getPhotoUri()));
+                    record.setPhotoUri(remapImageUri(record.getPhotoUri(), importedImageNames));
                     record.setId(0);
                     finalRecords.add(record);
                 }
@@ -407,7 +490,8 @@ public class BackupService {
                         match.setDisplayName(importedAccount.getDisplayName());
                         match.setMotto(importedAccount.getMotto());
                         // 备份缺图时 remap 返回 null，此时保留现有头像而非清空
-                        String remappedAvatar = remapImageUri(importedAccount.getAvatarUri());
+                        String remappedAvatar = remapImageUri(
+                                importedAccount.getAvatarUri(), importedImageNames);
                         if (remappedAvatar != null) {
                             match.setAvatarUri(remappedAvatar);
                         }
@@ -417,9 +501,18 @@ public class BackupService {
                         restored.setUsername(importedAccount.getUsername());
                         restored.setDisplayName(importedAccount.getDisplayName());
                         restored.setMotto(importedAccount.getMotto());
-                        restored.setAvatarUri(remapImageUri(importedAccount.getAvatarUri()));
-                        restored.setPasswordHash(importedAccount.getPasswordHash());
-                        restored.setSalt(importedAccount.getSalt());
+                        restored.setAvatarUri(remapImageUri(
+                                importedAccount.getAvatarUri(), importedImageNames));
+                        if (PasswordHasher.isValidStoredCredential(
+                                importedAccount.getPasswordHash(), importedAccount.getSalt())) {
+                            restored.setPasswordHash(importedAccount.getPasswordHash());
+                            restored.setSalt(importedAccount.getSalt());
+                        } else {
+                            String salt = PasswordHasher.generateSalt();
+                            restored.setSalt(salt);
+                            restored.setPasswordHash(
+                                    PasswordHasher.hash(importedAccount.getPassword(), salt));
+                        }
                         current.add(restored);
                     }
                 }
@@ -449,16 +542,11 @@ public class BackupService {
                     userRepository.saveAccounts(finalAccounts);
                 }
             });
+            databaseCommitted = true;
 
-            // 导入成功：被覆盖的同名旧图已无需还原，删掉临时副本。
-            for (File[] pair : overwrittenBackups) {
-                try {
-                    //noinspection ResultOfMethodCallIgnored
-                    pair[1].delete();
-                } catch (Exception ignored) {
-                    // 临时副本清理失败不应把已提交的导入伪装成失败；最多留下可清理的孤立文件。
-                }
-            }
+            // 导入成功：整个随机回滚目录已无用途，best-effort 一次清理即可。
+            // 清理失败不能把已提交的数据库事务伪装成导入失败。
+            deleteRecursively(importBackupDir);
 
             // 先取消导入前所有习惯的旧闹钟，再按导入后的数据重建，
             // 避免被删除习惯的 PendingIntent 残留触发。
@@ -476,31 +564,132 @@ public class BackupService {
             }
             return true;
         } catch (Exception e) {
+            if (databaseCommitted) {
+                deleteRecursively(importBackupDir);
+                return true;
+            }
             // DB 已由事务回滚；再复原磁盘上的图片，使磁盘状态一并回到导入前，不留孤儿文件。
             // 1) 删掉本次新写的图片（原本不存在的）。
-            for (File orphan : newlyWrittenImages) {
-                //noinspection ResultOfMethodCallIgnored
-                orphan.delete();
-            }
-            // 2) 用临时副本还原被覆盖的同名旧图：先删掉本次写入的新内容，再把副本改回原名。
-            for (File[] pair : overwrittenBackups) {
-                File out = pair[0];
-                File bak = pair[1];
-                //noinspection ResultOfMethodCallIgnored
-                out.delete();
-                //noinspection ResultOfMethodCallIgnored
-                bak.renameTo(out);
-            }
+            rollbackImages(newlyWrittenImages, overwrittenBackups, importBackupDir);
             return false;
         }
     }
 
     private boolean isSafeImageName(String fileName) {
-        return fileName != null
-                && !fileName.isEmpty()
-                && !fileName.contains("..")
-                && !fileName.contains("/")
-                && !fileName.contains("\\");
+        if (fileName == null || fileName.isEmpty()
+                || fileName.equals(".") || fileName.equals("..")
+                || fileName.indexOf('\0') >= 0
+                || fileName.contains("..")
+                || fileName.contains("/")
+                || fileName.contains("\\")) {
+            return false;
+        }
+        String normalized = normalizeImageName(fileName);
+        return !normalized.endsWith(".import_bak")
+                && !normalized.startsWith(".streak-import-")
+                && !normalized.startsWith(".streak-restore-");
+    }
+
+    private String normalizeImageName(String fileName) {
+        return fileName.toLowerCase(Locale.ROOT);
+    }
+
+    protected File createImportBackupDir() throws IOException {
+        if (!imageDir.exists() && !imageDir.mkdirs()) {
+            throw new IOException("Unable to create image directory");
+        }
+        for (int attempt = 0; attempt < 8; attempt++) {
+            File candidate = new File(imageDir, ".streak-import-" + UUID.randomUUID());
+            if (candidate.mkdir()) {
+                return candidate;
+            }
+        }
+        throw new IOException("Unable to create import rollback directory");
+    }
+
+    protected void writeImportedImage(File out, byte[] data) throws IOException {
+        try (FileOutputStream fos = new FileOutputStream(out)) {
+            fos.write(data);
+        }
+    }
+
+    private void rollbackImages(List<File> newlyWrittenImages,
+                                List<File[]> overwrittenBackups,
+                                File importBackupDir) {
+        boolean complete = true;
+        for (File orphan : newlyWrittenImages) {
+            try {
+                if (orphan.exists() && !orphan.delete()) {
+                    complete = false;
+                }
+            } catch (Exception e) {
+                complete = false;
+            }
+        }
+        for (int index = overwrittenBackups.size() - 1; index >= 0; index--) {
+            File[] pair = overwrittenBackups.get(index);
+            if (!restoreBackup(pair[0], pair[1])) {
+                complete = false;
+            }
+        }
+        if (complete) {
+            deleteRecursively(importBackupDir);
+        }
+    }
+
+    private boolean restoreBackup(File out, File backup) {
+        try {
+            if (out.exists() && !out.delete()) {
+                return false;
+            }
+            if (backup.renameTo(out)) {
+                return true;
+            }
+            if (!backup.isFile()) {
+                return false;
+            }
+            try (FileInputStream input = new FileInputStream(backup);
+                 FileOutputStream output = new FileOutputStream(out)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, read);
+                }
+            } catch (Exception e) {
+                try {
+                    out.delete();
+                } catch (Exception ignored) {
+                }
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean deleteRecursively(File file) {
+        if (file == null) {
+            return true;
+        }
+        try {
+            if (!file.exists()) {
+                return true;
+            }
+            File[] children = file.listFiles();
+            if (children == null && file.isDirectory()) {
+                return false;
+            }
+            boolean deleted = true;
+            if (children != null) {
+                for (File child : children) {
+                    deleted &= deleteRecursively(child);
+                }
+            }
+            return file.delete() && deleted;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -572,23 +761,95 @@ public class BackupService {
                 if (!usernames.add(account.getUsername())) {
                     throw new IOException("备份包含重复用户名");
                 }
-                boolean hasHash = !isBlank(account.getPasswordHash()) && !isBlank(account.getSalt());
+                // 空白字符串不是“字段缺失”：只要非空就属于已提供凭据，随后必须通过
+                // 严格 Base64/长度校验。否则 "   " + 明文会被错误降级成旧格式。
+                boolean hashPresent = hasCredentialField(account.getPasswordHash());
+                boolean saltPresent = hasCredentialField(account.getSalt());
                 boolean hasLegacyPassword = !isBlank(account.getPassword());
-                if (!hasHash && !hasLegacyPassword) {
+                if (hashPresent || saltPresent) {
+                    if (!hashPresent || !saltPresent || hasLegacyPassword
+                            || !PasswordHasher.isValidStoredCredential(
+                            account.getPasswordHash(), account.getSalt())) {
+                        throw new IOException("账号登录凭据格式非法");
+                    }
+                } else if (!hasLegacyPassword) {
                     throw new IOException("账号缺少可恢复的登录凭据");
                 }
             }
             for (HabitItem habit : habits) {
                 String owner = habit.getOwnerUsername();
-                if (owner != null && !owner.isEmpty() && !usernames.contains(owner)) {
+                if (owner == null || owner.isEmpty()) {
+                    if (!usernames.contains("student")) {
+                        throw new IOException("无归属习惯需要备份同时包含 student 账号");
+                    }
+                } else if (!usernames.contains(owner)) {
                     throw new IOException("习惯归属账号不在备份账号列表中");
+                }
+            }
+        } else {
+            // 旧散装备份可能没有 accounts.json。此时每个归属都必须能由本机现有账号承接；
+            // 无归属习惯仍按历史规则归给 student，但前提是 student 确实存在。
+            for (HabitItem habit : habits) {
+                String owner = habit.getOwnerUsername();
+                String resolvedOwner = owner == null || owner.isEmpty() ? "student" : owner;
+                if (!accountExists(resolvedOwner)) {
+                    throw new IOException("本机缺少可承接旧习惯的账号: " + resolvedOwner);
                 }
             }
         }
     }
 
+    /** 拒绝 ZIP 中不被任何导入实体引用的图片，防止借空备份覆盖本机同名文件。 */
+    private void validateImportedImages(Set<String> importedNames,
+                                        List<HabitItem> habits,
+                                        List<CheckInRecord> records,
+                                        List<UserAccount> accounts) throws IOException {
+        Set<String> referencedNames = new HashSet<>();
+        for (HabitItem habit : habits) {
+            addReferencedImageName(referencedNames, habit.getImageUri());
+        }
+        if (records != null) {
+            for (CheckInRecord record : records) {
+                addReferencedImageName(referencedNames, record.getPhotoUri());
+            }
+        }
+        if (accounts != null) {
+            for (UserAccount account : accounts) {
+                addReferencedImageName(referencedNames, account.getAvatarUri());
+            }
+        }
+        for (String importedName : importedNames) {
+            if (!referencedNames.contains(importedName)) {
+                throw new IOException("备份包含未被任何数据引用的图片: " + importedName);
+            }
+        }
+    }
+
+    private void addReferencedImageName(Set<String> referencedNames, String uri) {
+        if (AvatarPresets.isPreset(uri)) {
+            return;
+        }
+        File source = imageStore.resolveImageFile(uri);
+        if (source != null && isSafeImageName(source.getName())) {
+            referencedNames.add(normalizeImageName(source.getName()));
+        }
+    }
+
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private boolean hasCredentialField(String value) {
+        return value != null && !value.isEmpty();
+    }
+
+    private boolean accountExists(String username) {
+        for (UserAccount account : userRepository.loadAccounts()) {
+            if (account != null && username.equals(account.getUsername())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -668,7 +929,7 @@ public class BackupService {
     /**
      * 把备份里的图片路径重映射为本机 imageDir 下的同名文件（若该文件确实已解压存在）。
      */
-    private String remapImageUri(String original) {
+    private String remapImageUri(String original, Map<String, String> importedImageNames) {
         // 预置头像是逻辑标识（preset:N），不是文件，原样保留
         if (AvatarPresets.isPreset(original)) {
             return original;
@@ -677,8 +938,12 @@ public class BackupService {
         if (source == null) {
             return null;
         }
-        File local = new File(imageDir, source.getName());
-        if (local.exists()) {
+        String importedName = importedImageNames.get(normalizeImageName(source.getName()));
+        if (importedName == null) {
+            return null;
+        }
+        File local = new File(imageDir, importedName);
+        if (local.isFile()) {
             return Uri.fromFile(local).toString();
         }
         return null;
