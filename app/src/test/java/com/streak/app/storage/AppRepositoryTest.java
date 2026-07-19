@@ -20,6 +20,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -129,10 +131,135 @@ public class AppRepositoryTest {
         repository.registerAccount("dave", "pwDDDDDD");
         loginAs("dave");
         // 不预设 owner，saveHabit 应自动盖上当前登录账号
-        repository.saveHabit(newHabit(2001L, "无主习惯", null));
+        HabitItem input = newHabit(2001L, "无主习惯", null);
+        assertTrue(repository.saveHabit(input));
+        assertNull("saveHabit must not mutate the caller's object", input.getOwnerUsername());
         List<HabitItem> habits = repository.readHabits();
         assertEquals(1, habits.size());
         assertEquals("dave", habits.get(0).getOwnerUsername());
+    }
+
+    @Test
+    public void saveHabit_cannotForgeOwnerToOverwriteAnotherAccount() {
+        repository.registerAccount("alice", "pwAAAAAA");
+        repository.registerAccount("bob", "pwBBBBBB");
+
+        loginAs("bob");
+        repository.saveHabit(newHabit(2101L, "Bob 的原习惯", "bob"));
+
+        // 即使调用方伪造 owner 为当前账号，已有的他人主键也不能被 upsert 覆盖。
+        loginAs("alice");
+        HabitItem forged = newHabit(2101L, "Alice 的伪造习惯", "alice");
+        repository.saveHabit(forged);
+        assertTrue(repository.readHabits().isEmpty());
+
+        loginAs("bob");
+        assertEquals(1, repository.readHabits().size());
+        assertEquals("Bob 的原习惯", repository.readHabits().get(0).getTitle());
+    }
+
+    @Test
+    public void writeHabits_rejectsMixedOwnersWithoutClearingExistingData() {
+        repository.registerAccount("alice", "pwAAAAAA");
+        repository.registerAccount("bob", "pwBBBBBB");
+
+        loginAs("alice");
+        repository.saveHabit(newHabit(2201L, "Alice 的原习惯", "alice"));
+
+        // 批次中显式带有他人归属时，必须在任何删除前整体拒绝。
+        HabitItem own = newHabit(2202L, "新的 Alice 习惯", null);
+        HabitItem foreign = newHabit(2203L, "不应写入的 Bob 习惯", "bob");
+        repository.writeHabits(Arrays.asList(own, foreign));
+
+        assertEquals(1, repository.readHabits().size());
+        assertEquals("Alice 的原习惯", repository.readHabits().get(0).getTitle());
+        assertNull(own.getOwnerUsername());
+        assertEquals("bob", foreign.getOwnerUsername());
+    }
+
+    @Test
+    public void writeHabits_rejectsDuplicateIdsWithoutClearingExistingData() {
+        repository.registerAccount("alice", "pwAAAAAA");
+        loginAs("alice");
+        repository.saveHabit(newHabit(2301L, "Alice 的原习惯", "alice"));
+
+        HabitItem first = newHabit(2302L, "重复 ID 第一项", null);
+        HabitItem second = newHabit(2302L, "重复 ID 第二项", null);
+        repository.writeHabits(Arrays.asList(first, second));
+
+        assertEquals(1, repository.readHabits().size());
+        assertEquals("Alice 的原习惯", repository.readHabits().get(0).getTitle());
+        assertNull(first.getOwnerUsername());
+        assertNull(second.getOwnerUsername());
+    }
+
+    @Test
+    public void writeHabits_rejectsForeignIdAtomicallyAndPreservesInput() {
+        repository.registerAccount("alice", "pwAAAAAA");
+        repository.registerAccount("bob", "pwBBBBBB");
+
+        loginAs("bob");
+        repository.saveHabit(newHabit(2402L, "Bob 的原习惯", "bob"));
+        loginAs("alice");
+        repository.saveHabit(newHabit(2401L, "Alice 的原习惯", "alice"));
+
+        // owner 都伪造成 Alice，只有事务内的全表主键归属检查才能挡住第二项。
+        HabitItem replacement = newHabit(2403L, "不应替换的 Alice 习惯", null);
+        HabitItem forgedForeignId = newHabit(2402L, "不应覆盖 Bob 的习惯", "alice");
+        repository.writeHabits(Arrays.asList(replacement, forgedForeignId));
+
+        assertEquals(1, repository.readHabits().size());
+        assertEquals("Alice 的原习惯", repository.readHabits().get(0).getTitle());
+        assertNull(replacement.getOwnerUsername());
+        assertEquals("alice", forgedForeignId.getOwnerUsername());
+
+        loginAs("bob");
+        assertEquals(1, repository.readHabits().size());
+        assertEquals("Bob 的原习惯", repository.readHabits().get(0).getTitle());
+    }
+
+    @Test
+    public void writeHabits_successDoesNotMutateInputOwnerOrCollections() {
+        repository.registerAccount("alice", "pwAAAAAA");
+        loginAs("alice");
+
+        List<String> tags = new ArrayList<>(Arrays.asList("阅读", "早起"));
+        List<String> completedDates = new ArrayList<>(Arrays.asList("2026-01-01"));
+        HabitItem input = newHabit(2501L, "输入对象", null);
+        input.setTags(tags);
+        input.setCompletedDates(completedDates);
+        repository.writeHabits(Arrays.asList(input));
+
+        // 归属盖章和打卡同步应只作用于仓库副本，不能反向修改调用方对象。
+        assertNull(input.getOwnerUsername());
+        assertEquals(tags, input.getTags());
+        assertEquals(completedDates, input.getCompletedDates());
+        assertEquals("alice", repository.readHabits().get(0).getOwnerUsername());
+    }
+
+    @Test
+    public void deleteHabit_deletesSharedImageOnlyAfterLastReference() throws Exception {
+        repository.registerAccount("alice", "pwAAAAAA");
+        loginAs("alice");
+
+        File imageDir = new File(context.getFilesDir(), "habit_images");
+        assertTrue(imageDir.mkdirs() || imageDir.isDirectory());
+        File sharedImage = new File(imageDir, "shared-delete-test.jpg");
+        try (FileOutputStream output = new FileOutputStream(sharedImage)) {
+            output.write(1);
+        }
+
+        HabitItem first = newHabit(2601L, "第一条共享图片习惯", null);
+        first.setImageUri(sharedImage.getAbsolutePath());
+        HabitItem second = newHabit(2602L, "第二条共享图片习惯", null);
+        second.setImageUri(sharedImage.getAbsolutePath());
+        assertTrue(repository.saveHabit(first));
+        assertTrue(repository.saveHabit(second));
+
+        assertTrue(repository.deleteHabitById(first.getId()));
+        assertTrue("the remaining reference must keep the shared file", sharedImage.exists());
+        assertTrue(repository.deleteHabitById(second.getId()));
+        assertFalse("the last removed reference must release the shared file", sharedImage.exists());
     }
 
     @Test
